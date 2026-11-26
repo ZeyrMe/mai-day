@@ -48,9 +48,16 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
         self.own_user_id = ""
 
     def console_text(self):
-        last = self.store.data.get("last_state", {}) if self.engine else {}
-        debt = self.store.data.get("sleep_debt_minutes", 0) if self.engine else 0
-        return f"作息预设：{self.config.preset}；波动：{self.config.volatility_level}\n当前：{last}\n睡眠债：{debt} 分钟"
+        preset_labels = {"student": "学生党", "worker": "上班族", "night_owl": "夜猫子", "custom": "自定义"}
+        vol_labels = {"fixed": "固定不变", "calm": "微幅起伏", "natural": "自然真人感", "chaotic": "随性跳脱"}
+        last = (self.store.data.get("last_state") or {}) if self.engine else {}
+        phase = "睡觉静默中" if last.get("sleeping") else "清醒在线"
+        title = last.get("title") or "暂未初始化"
+        debt = int(round(self.store.data.get("sleep_debt_minutes", 0))) if self.engine else 0
+        return (
+            f"作息模板：{preset_labels.get(self.config.preset, self.config.preset)} · 波动感：{vol_labels.get(self.config.volatility_level, self.config.volatility_level)}\n"
+            f"当下状态：{phase}（正在「{title}」） · 昨晚累积睡眠债：{debt} 分钟"
+        )
 
     async def on_load(self):
         self.store = StateFile(self.ctx.paths.data_dir / "life.json", initial_state())
@@ -418,6 +425,16 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
 
     async def get_config_widget_state(self):
         states = await super().get_config_widget_state()
+        catchup_rows = [
+            f"会话 {stream[:12]}：读过 {info.get('messages_read', 0)} 条消息{'（已按上限截断更早内容）' if info.get('truncated') else ''}"
+            for stream, info in self.coordination.status.items()
+        ]
+        freq_rows = [
+            f"群会话 {stream[:12]}：当前倍率 ×{value[1]:.2f}"
+            for stream, value in self.coordination.owned.items()
+        ]
+        catchup_text = "、".join(catchup_rows) if catchup_rows else "今天醒来还没有超过门槛需要爬楼的群"
+        freq_text = "、".join(freq_rows) if freq_rows else "暂未向群聊下发频率倍率（待消息触发后更新）"
         return {
             **states,
             "wake_now": ConfigWidgetState(disabled=not bool(self.engine)),
@@ -427,13 +444,7 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
             "regenerate_plan": ConfigWidgetState(disabled=not self.engine),
             "catchup_status": ConfigWidgetState(
                 image=self.timeline_image,
-                text=json.dumps(
-                    {
-                        "catchup": self.coordination.status,
-                        "frequency": {stream: value[1] for stream, value in self.coordination.owned.items()},
-                    },
-                    ensure_ascii=False,
-                )[:2000],
+                text=f"醒来爬楼：{catchup_text}\n群聊频率：{freq_text}"[:2000],
             ),
         }
 
@@ -593,7 +604,7 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
             return False, "需要管理员权限", 1
         until = self.engine.now() + timedelta(minutes=self.config.wake_minutes)
         self.store.data["wake_until"] = until.isoformat()
-        self.engine.event("admin_wake", until.isoformat(), self.engine.now())
+        self.engine.event("admin_wake", f"保持清醒到 {until.strftime('%H:%M')}", self.engine.now())
         await self.command_response("临时唤醒已生效", stream_id)
         return True, "临时唤醒已生效", 2
 

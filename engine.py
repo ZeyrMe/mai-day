@@ -19,13 +19,16 @@ def parse(value):
 _EVENT_LABELS = {
     "wake": "刚睡醒",
     "sleep": "准备睡了",
-    "block_end": "刚结束",
+    "block_end": "刚结束上一件事",
     "sleep_deferred": "聊得正热顺延入睡",
     "sleep_compensated": "昨晚晚睡补眠",
-    "manual_added": "临时安排",
-    "calendar_updated": "同步日程约定",
-    "shared": "刚在群里分享了新鲜事",
-    "admin_wake": "被管理员叫醒",
+    "manual_added": "新增临时安排",
+    "calendar_updated": "同步日历约定",
+    "future_plan_refreshed": "重排了后续软安排",
+    "shared": "在群里分享了新鲜事",
+    "admin_wake": "被管理员临时唤醒",
+    "self_note": "随手记下近况",
+    "external": "刚发生的事",
 }
 
 
@@ -366,7 +369,7 @@ class Engine:
                     0, self.store.data["sleep_debt_minutes"] - compensation
                 )
                 overlay["compensated"] = True
-                self.event("sleep_compensated", str(compensation), now)
+                self.event("sleep_compensated", f"多睡了 {int(round(compensation))} 分钟补觉", now)
             self.event("wake", state["anchor"], now, event_id=f"wake:{now.isoformat()}")
         elif previous and not previous["sleeping"] and state["sleeping"]:
             self.event("sleep", state["anchor"], now, event_id=f"sleep:{now.isoformat()}")
@@ -435,7 +438,7 @@ class Engine:
             overlay["compensation_minutes"] = max(0, (compensated_end - original_end).total_seconds() / 60)
         self.event(
             "sleep_deferred",
-            f"{row['start']} → {until.isoformat()}",
+            f"原定 {parse(row['start']).astimezone(self.zone).strftime('%H:%M')} 入睡，顺延到 {until.astimezone(self.zone).strftime('%H:%M')}",
             now,
             event_id=f"delay:{row['id']}:{until.isoformat()}",
             block_id=row["id"],
@@ -469,7 +472,7 @@ class Engine:
                 continue
         if self.store.data.get("calendar_todos") != projected:
             self.store.data["calendar_todos"] = projected
-            self.event("calendar_updated", str(len(projected)), now)
+            self.event("calendar_updated", f"更新了 {len(projected)} 条今日约定安排", now)
 
     def add_manual(self, block: Block, now, day=None):
         row = self.block_row(day or self.logical_date(now), block, f"manual:{uuid.uuid4().hex}")
@@ -516,7 +519,9 @@ class Engine:
             "blocks": future,
             "suppressed": suppressed,
         }
-        self.event("future_plan_refreshed", day.isoformat(), now, revision=revision_id)
+        self.event(
+            "future_plan_refreshed", f"已重排 {day.isoformat()} 剩余的柔性空闲时段", now, revision=revision_id
+        )
         return future
 
     def availability(self, start, end):
@@ -606,9 +611,10 @@ class Engine:
         self.store.data["settlements"][lease_id] = row
         if sent:
             self.store.data["shared_at"][lease["stream_id"]] = now.isoformat()
+            purpose_label = "见闻搬运" if lease["purpose"] == "share" else lease["purpose"]
             self.event(
                 "shared",
-                lease["purpose"],
+                purpose_label,
                 now,
                 event_id=f"{lease['stream_id']}:receipt:{receipt_id}",
                 source=lease["purpose"],
