@@ -180,3 +180,12 @@ async def test_receiving_messages_batches_route_persistence(plugin, monkeypatch)
     await plugin.observe_message(message=message)
     await plugin.on_unload()
     assert save.call_count == 2
+
+
+async def test_unsupported_item_schema_retains_sleep_filter(plugin):
+    plugin.engine.state = lambda *args: {"sleeping": True, "phase": "sleep", "anchor": "休息"}
+    response = await plugin.planner(
+        session_id="s", items=[], item_schema_version=999, tool_definitions=[{"function": {"name": "reply"}}]
+    )
+    assert response["modified_kwargs"]["tool_definitions"] == []
+    assert response["modified_kwargs"]["items"] == []

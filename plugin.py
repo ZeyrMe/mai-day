@@ -69,11 +69,11 @@ class Plugin(MaiBotPlugin):
                     state, previous = self.engine.transition()
                     if previous:
                         await self.greet(state, previous)
+                self.flush_state()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 self.ctx.logger.exception("生活调度失败；保留现有状态，下轮重试")
-            self.flush_state()
             await asyncio.sleep(self.config.tick_seconds)
 
     def observation(self, platform, group_id):
