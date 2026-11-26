@@ -94,7 +94,9 @@ class Engine:
                         "start": start.isoformat(),
                         "end": end.isoformat(),
                         "title": str(todo["text"]),
-                        "flexibility": "locked",
+                        "flexibility": "locked"
+                        if todo.get("ownership") == "mutual"
+                        else todo.get("flexibility", "soft"),
                         "sleeping": False,
                     }
                 )
@@ -181,6 +183,11 @@ class Engine:
                     deviation["manual"] = True
                     deviation["sleeping"] = False
                     rows.append(deviation)
+        # Calendar revisions are projected separately; original daily plans remain immutable.
+        calendar = self.store.data.get("calendar_todos")
+        if calendar is not None:
+            rows = [row for row in rows if not row["id"].startswith("todo:")]
+            rows.extend(dict(row) for row in calendar.values() if parse(row["end"]) > now - timedelta(days=3))
         # Delays and compensation are overlays, never mutations of the original plan.
         for row in rows:
             overlay = self.store.data["overlays"].get(row["id"], {})
@@ -383,6 +390,33 @@ class Engine:
             effective_start=until.isoformat(),
         )
         return True
+
+    def sync_calendar(self, todos, now):
+        projected = {}
+        for todo in todos:
+            if todo.get("ownership") not in ("self", "mutual"):
+                continue
+            try:
+                start, end = parse(todo["start"]), parse(todo["end"])
+                if start.tzinfo is None or end.tzinfo is None or end <= start:
+                    continue
+                key = f"todo:{todo['id']}"
+                projected[key] = {
+                    "id": key,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "title": str(todo["text"]),
+                    "sleeping": False,
+                    "flexibility": "locked"
+                    if todo["ownership"] == "mutual"
+                    else todo.get("flexibility", "soft"),
+                    "revision": todo.get("revision", 1),
+                }
+            except (KeyError, ValueError, TypeError):
+                continue
+        if self.store.data.get("calendar_todos") != projected:
+            self.store.data["calendar_todos"] = projected
+            self.event("calendar_updated", str(len(projected)), now)
 
     def add_manual(self, block: Block, now, day=None):
         row = self.block_row(day or self.logical_date(now), block, f"manual:{uuid.uuid4().hex}")

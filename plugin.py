@@ -50,11 +50,11 @@ class Plugin(MaiBotPlugin):
         now = self.engine.now()
         day = self.engine.logical_date(now)
         key = day.isoformat()
-        if self.calendar_checked == key:
-            return
         context = await optional_api(self.ctx, "zeyr.mai-calendar.get_day_context", date=key)
         todos = await optional_api(self.ctx, "zeyr.mai-calendar.get_schedulable_todos", date=key)
         self.engine.plan(day, context, (todos or {}).get("items", []))
+        if todos is not None:
+            self.engine.sync_calendar((todos or {}).get("items", []), now)
         self.calendar_checked = key
 
     async def loop(self):
