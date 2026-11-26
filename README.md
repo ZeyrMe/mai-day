@@ -1,42 +1,93 @@
-# 麦的一天
+# 麦的一天 · `zeyr.mai-day`
 
-`zeyr.mai-day` · 日程、连续动态与不丢消息睡眠。
+> 两层周模板、块级刚度与档期协商、四级拟真作息波动、睡眠时段“频率归零零思考纯观望”、醒来 99 条爬楼速记，以及全生态节拍协调中心。
 
-开发基线 MaiBot 1.4.8 / SDK 2.23.0。可独立安装，其他 zeyr 插件仅通过公开 API 自动联动。
+![Version](https://img.shields.io/badge/version-0.2.0-green)
+![MaiBot](https://img.shields.io/badge/MaiBot-1.4.8%2B-blue)
+![SDK](https://img.shields.io/badge/SDK-2.23.0-teal)
+![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
-首批已实现：student/worker/night_owl/custom 周模板、locked/soft/open 三级刚度、四档波动、三日连续状态窗口、每日底稿与只增动态流、睡眠债和聊嗨延睡、手动 `/日程 + HH:MM ... [locked|soft|open]`、`/唤醒`、`get_state`/分享租约 API，以及睡眠时只静默回复和发送、持续接收入库学习的双保险。主动问候采用独立 Replyer 生成后按实际发送回执结算；观察群始终只采集。
+## 核心特性
 
-分享流程是 `reserve_share` → `authorize_share`（精确文本短期授权）→ 实际发送 → `settle_share`，发送前会再次检查窗口。没有 calendar/circle/insights 时仍可独立运行，并使用本地配置或降级路径。
+- **两层作息 + 三级刚度 + 块级细调**：
+  - 内置 `student` / `worker` / `night_owl` / `custom` 预设（工作日 / 周末假日 / 指定星期覆盖），支持跨午夜逻辑作息日（默认 `05:00` 换日，重启不断点）；
+  - 每个时间块区分 `locked`（刚性课/工作/双方约定）、`soft`（吃饭/睡眠，可抖动与商量）和 `open`（自由摸鱼槽），且支持块级独立 `max_shift_minutes`（`-1` 继承波动档位，`0` 不随机偏移）与 `negotiable`。
+- **同意 / 推脱 / 可商量的档期闭环**：对话中被约时间时，`query_today_schedule` 与 `check_availability` 直接返回 `conflict_locked`（附今日最近空闲窗方便礼貌推脱）、`negotiable`（说明可挪范围）或 `free`，答应后还能顺手记入动态事件流（底稿保持不可变，动态以自然中文只增不覆）。
+- **四级波动 + 可选午觉 + 每日轻润色**：提供 `fixed / calm / natural / chaotic` 四档波动、聊嗨延迟入睡（含私聊更粘人倍率 + 最晚死线 `hard_bedtime`）与次日睡眠债补觉；可选开启条件午觉（`nap`）和每天 1 次轻量活动标题润色（`daily_polish`）。
+- **夜间真·零思考不丢消息**：
+  - 只要启用 `sleep_silence`（即使关闭白天动态调权），入睡后自动把群聊频率倍率压至 `0.0`（包括观察群与冷启动首条睡着群消息），**走宿主原生静默消费（0 次 Planner 调用，100% 记忆/表达/黑话入库学习）**，醒来自动精准恢复入睡前原倍率；
+  - 私聊（宿主底层忽略 `set_adjust`）与边缘窗口由 `planner` 移工具 + `replyer` + `before_send` 护栏稳妥兜底，并严格放行其他插件带 30 秒精确授权的命令回执、到期提醒与工具总结。
+- **醒来“爬楼补课感”**：睡醒按每个会话错过消息量决定是否拉模型——低于 `99` 条不浪费模型直接看近期记录；达到 `99` 条则读取最新有界历史（过滤宿主自身与同行 Bot）生成简短速记，以 `replyable=False` 插卡放回会话上下文。
+- **时段 × 关系频率合成 & 早晚安**：清醒时按当前时段权重与 `mai-circle` 关系权重乘法合成群聊发言倍率（无 `mai-day` 时由 `mai-circle` 独立接手）；支持 `off` / `passive_hint` / `proactive` 三档早晚安（主动模式仅对近期热聊过的活跃群或显式私聊对象，靠人设实时生成且绝不在午觉时误发）。
 
-已在 MaiBot 1.4.8 / SDK 2.23.0 Docker 宿主完成安装和启动检查。睡眠期服务发送采用 30 秒、会话与精确文本绑定的一次性授权；普通聊天仍受睡眠门控，观察群优先禁发。入站活跃时间在内存更新，由后台 tick 和卸载统一持久化。真实目标群发送仍需结合实例配置验收。
+---
 
-安装时将整个目录同步到宿主 plugins；运行 config.toml 由 SDK 生成。实例名单、个人资料和密钥只填运行配置，不提交。
+## 安装与快速配置
 
-检查：`python -m pytest`，开发依赖见 pyproject.toml。
+将 `mai-day/` 放入宿主 `plugins/` 目录并重启 MaiBot；建议首次上线直接先调 3 项（作息模板、波动档位、是否启用睡眠静默）即可生效。
 
+`config.toml` 示例：
 
-## v2.5 第一批：范围与原生控制台
+```toml
+enabled = true
+preset = "student"                 # student | worker | night_owl | custom
+volatility_level = "natural"       # fixed | calm | natural | chaotic
+sleep_silence = true
+good_morning_mode = "passive_hint" # off | passive_hint | proactive
+good_night_mode = "passive_hint"
 
-新增独立 `[scope]`：mode 默认 all；groups / privates / users 接受 `group:标识` / `private:标识` / `user:标识`，可带平台前缀（默认 qq）。mode=whitelist 只允许命中对象；mode=blacklist 排除命中对象；all 允许所有对象。exclude 始终优先。allow_private=false 仅放行名单明确指定的私聊，主动私聊仍需单独配置目标。
+[[passive_observation_groups]]
+platform = "qq"
+group_id = "111222333"
 
-可用 `@set:名称` / `@tag:名称` 复用 mai-circle 集合/标签；缺席时按空集合降级，不影响直接对象。受限模式在没有真实会话身份时跳过业务，消息仍正常进入宿主。重启后的会话身份缓存由入站消息恢复。
+[[targets]]
+platform = "qq"
+group_id = "999888777"
 
-WebUI 配置页提供运行状态面板与“刷新公共集合缓存”按钮，不调用模型、不发送聊天。范围分组默认折叠；字段采用中文标签与结构化条目卡片。
+[[admins]]
+platform = "qq"
+user_id = "987654"
+```
 
-presets 改为带 name 的条目列表，volatility 改为 volatility_profiles，星期 overrides 改为 weekday / blocks 列表；旧结构自动转换。
+---
 
-本批提供公共基础设施。后续业务能力见下方 0.2.0 说明。旧配置保持可读，Runner 规范化写回后采用新结构；回退旧代码前需恢复相应配置快照。实例 config.toml 仍不进入 Git。
+## 工具、命令、接口与 WebUI 控制台
 
+### 对话工具（`@Tool`）
+| 工具名 | 参数 | 作用 |
+|---|---|---|
+| `query_today_schedule` | `scope="all"`, `start=""`, `end=""`, `event_text=""` | 查询当天底稿/当前生效日程/近期动态；传入 `start/end` 检查档期冲突；传入 `event_text` 实时记一笔生活变化 |
 
-## 0.2.0 · v2.5 业务增量
+### 管理命令（需在 `admins` 或 `mai-circle.admins` 名单内）
+| 命令格式 | 效果 |
+|---|---|
+| `/日程 + HH:MM[-HH:MM] <内容> [locked\|soft\|open]` | 向当天追加手动日程块并即时重算冲突与未来空档 |
+| `/唤醒` | 临时唤醒 Bot（默认持续 `15` 分钟） |
 
-块级 max_shift_minutes/negotiable/reply_weight、查档期 free/negotiable/conflict_locked、真实当前消息自记动态、作息偏好读取、可选午觉和每日标题润色。max_shift_minutes/reply_weight 在 TOML 中用 -1 表示继承（JSON 的 null 也兼容），0 明确表示不偏移/不加权。catchup 过滤宿主自身消息与已标记 Bot，至少99条才摘要，按上限读最新记录并以 replyable=false 插卡，同睡眠周期去重、失败保留重试。唯一频率合成器按会话与关系相乘、可选归一化，停用/卸载条件恢复。控制台有临时唤醒、频率/爬楼状态、无外网时间线图片和保留原底稿的未来软安排重排。
+### 对外联动接口（`@API(..., version="1")`）
+- `get_state(stream_id="")` / `check_availability(start, end="")` / `append_dynamic_event(text, source, event_id)`
+- `is_free_for_sharing(stream_id)` / `reserve_share(stream_id)` / `authorize_share(lease_id, text)` / `settle_share(lease_id, sent, receipt_id)`
+- `authorize_service_send(stream_id, text)` / `revoke_service_send(stream_id, text)`
 
-接口保持 `@API(..., version="1")`，缺少可选插件时自动降级。模型生成、网络和宿主上下文效果仍需结合实例配置验收；离线测试不等同于真实聊天送达。
+### WebUI 运行时控制台（`config_widgets`）
+| 控件 | 类型 | 说明 |
+|---|---|---|
+| `运行状态与生效范围` | 实时状态 | 展示当前预设、波动等级、实时时间块/睡眠债与 `[scope]` 状态 |
+| `爬楼与频率状态` | 状态 / 图表 | 展示各会话最近爬楼统计、向宿主写入的当前频率倍率，以及渲染后的今日后续时间线图片 |
+| `刷新今日时间线图` | 一键按钮 | 使用本地 `ctx.render.html2png` 无外网渲染今日后续时间线预览图 |
+| `临时唤醒` | 一键按钮 | 后台立即临时唤醒当前状态，无需在群里发命令 |
+| `刷新今日未来软安排` | 二次确认按钮 | 保留已发生事件与 `locked` 约定，重新投影今天剩余的软安排 |
+| `刷新公共集合缓存` | 一键按钮 | 刷新 `@set:` / `@tag:` 范围缓存 |
 
-## 开发与门禁
+---
 
-此目录由 MaiBot 直接加载，不使用 `pip install .`。单独拉取本仓即可安装固定的测试环境，不依赖父目录或其他仓库：
+## 生态联动与注意事项
+
+- **与全生态联动**：自动读取 `mai-calendar` 当天节日/调休与 `self`/`mutual` 待办、读取 `mai-profile` 作息偏好、读取 `mai-circle` 关系权重与 Bot 列表，并为 `mai-insights` 提供分享租约与回执冷却统一协调。
+- **不迁移旧版 `mai-life`**：若之前装过旧版 `maibot-community.mai-life`，请在运行前将其禁用；本插件使用独立的 `life.json`，绝不修改或删除旧数据。
+
+<details>
+<summary>开发、门禁与安全审计（独立仓库维护）</summary>
 
 ```bash
 python3.13 -m venv .venv
@@ -44,25 +95,6 @@ python3.13 -m venv .venv
 .venv/bin/python scripts/check.py
 ```
 
-`check.py` 验证 Git 已跟踪文本的 UTF-8、行尾、末尾换行和尾随空格，然后运行 Ruff lint、Ruff 格式检查及全部 pytest。它不自动修复源码或重新生成示例配置；新增文件需先纳入 Git，才会参与文本检查。测试还验证示例配置与 SDK 默认值、manifest 身份/版本/运行依赖与 `pyproject.toml` 的一致性，以及已安装依赖是否满足声明。
+- 包含 60 项本地单元/边界/频率协调测试与端到端睡眠门控校验，以及 CI Ruff/审计/密钥扫描流水线。
 
-GitHub Actions 在 push、pull request、手动触发和每周一运行：Python 3.12/3.13 验证、运行及开发依赖漏洞审计、Gitleaks 完整 Git 历史扫描。每仓独立执行，不调用共享 `tools`，不需要自定义密钥。Gitleaks 使用内置规则，固定 CLI 版本并校验下载 SHA-256；扫描日志隐藏发现的密钥值，不默认忽略历史发现。
-
-本地安全检查（Gitleaks CLI 版本与 CI 保持一致）：
-
-```bash
-.venv/bin/python -m pip_audit --strict --require-hashes --disable-pip -r .github/requirements-ci.txt
-gitleaks git --redact --log-opts="--all" .
-gitleaks dir --redact .
-```
-
-`.gitattributes` 统一文本 LF，Windows 批处理为 CRLF，并明确二进制资源；`.editorconfig` 统一编辑器编码、缩进和空白。Ruff 负责 Python 代码格式；JSON/TOML 由契约测试解析校验。实例配置和秘密不得提交。
-
-运行依赖范围与开发依赖在 `pyproject.toml` 中声明，`.github/requirements-ci.txt` 锁定 CI 的直接及间接依赖。修改依赖后，在仓库根目录使用 uv 重新解析并提交锁定文件；普通代码修改无需刷新依赖：
-
-```bash
-uv pip compile pyproject.toml --extra dev --universal --python-version 3.12 --generate-hashes --output-file .github/requirements-ci.txt
-# 有意升级到兼容范围内的新版本时，在上述命令后加 --upgrade。
-```
-
-Dependabot 每周检查 Python 依赖和 GitHub Actions 更新。接入 GitHub 后，在分支保护或 ruleset 中将 `Python 3.12`、`Python 3.13`、`Dependency audit`、`Gitleaks` 设为合并必需检查；只提交工作流文件不会自动开启分支保护。
+</details>
