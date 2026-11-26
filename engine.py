@@ -16,6 +16,19 @@ def parse(value):
     return datetime.fromisoformat(value)
 
 
+_EVENT_LABELS = {
+    "wake": "刚睡醒",
+    "sleep": "准备睡了",
+    "block_end": "刚结束",
+    "sleep_deferred": "聊得正热顺延入睡",
+    "sleep_compensated": "昨晚晚睡补眠",
+    "manual_added": "临时安排",
+    "calendar_updated": "同步日程约定",
+    "shared": "刚在群里分享了新鲜事",
+    "admin_wake": "被管理员叫醒",
+}
+
+
 class Engine:
     def __init__(self, config: Config, store: StateFile):
         self.config, self.store = config, store
@@ -44,7 +57,7 @@ class Engine:
             "at": now.isoformat(),
             "logical_date": self.logical_date(now).isoformat(),
             "kind": kind,
-            "text": render(self.config.event_template, kind=kind, detail=detail),
+            "text": render(self.config.event_template, kind=_EVENT_LABELS.get(kind, kind), detail=detail),
             "source": source,
             **fields,
         }

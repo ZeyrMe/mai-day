@@ -28,24 +28,76 @@ class Coordination:
         while len(self.users) > limit:
             del self.users[next(iter(self.users))]
 
+    async def _apply_adjust(self, stream, desired):
+        p = self.plugin
+        current = await p.ctx.frequency.get_adjust(stream)
+        if not isinstance(current, dict) or not current.get("success"):
+            return False
+        prior = self.owned.get(stream)
+        original = prior[0] if prior else float(current["value"])
+        sent = await p.ctx.frequency.set_adjust(stream, desired)
+        if isinstance(sent, dict) and sent.get("success"):
+            self.owned[stream] = (original, desired)
+            p.store.data.setdefault("frequency_adjust", {})[stream] = desired
+            return True
+        return False
+
+    async def silence_stream(self, stream):
+        p = self.plugin
+        if not stream or not p.config.enabled:
+            return False
+        route = p.store.data["routes"].get(stream, {})
+        if not route.get("group_id"):
+            return False
+        is_obs = p.stream_observation(stream)
+        state = p.engine.state()
+        if not is_obs and not (
+            state["sleeping"]
+            and p.config.sleep_silence
+            and await p.target_in_scope(
+                route.get("platform", "qq"), route.get("group_id", ""), route.get("user_id", ""), stream
+            )
+        ):
+            return False
+        prior = self.owned.get(stream)
+        if prior and prior[1] == 0:
+            return True
+        with contextlib.suppress(Exception):
+            return await self._apply_adjust(stream, 0.0)
+        return False
+
     async def frequency(self):
         p = self.plugin
-        if not p.config.enabled or not p.config.weights.enabled:
+        if not p.config.enabled:
             await self.restore()
             return
         state = p.engine.state()
         block = state["current_block"]
+        sleeping_silent = bool(state["sleeping"] and p.config.sleep_silence)
         day = block.get("reply_weight")
         if day is None or day < 0:
             day = getattr(p.config.weights, block["flexibility"])
-        if state["sleeping"]:
+        if sleeping_silent:
             day = 0
         elif p.config.low_energy_hint and p.config.low_energy_hint in state["anchor"]:
             day *= p.config.weights.low_energy
         for stream, route in list(p.store.data["routes"].items()):
-            if p.stream_observation(stream) or not await p.target_in_scope(
+            if not route.get("group_id"):
+                await self.restore(stream)
+                continue
+            is_obs = p.stream_observation(stream)
+            if is_obs:
+                await self._apply_adjust(stream, 0.0)
+                continue
+            if not await p.target_in_scope(
                 route.get("platform", "qq"), route.get("group_id", ""), route.get("user_id", ""), stream
             ):
+                await self.restore(stream)
+                continue
+            if sleeping_silent:
+                await self._apply_adjust(stream, 0.0)
+                continue
+            if not p.config.weights.enabled:
                 await self.restore(stream)
                 continue
             now = p.engine.now()
@@ -59,7 +111,7 @@ class Coordination:
                 "zeyr.mai-circle.get_chat_weight",
                 platform=route.get("platform", "qq"),
                 user_ids=users,
-                scope_kind="group" if route.get("group_id") else "private",
+                scope_kind="group",
             )
             weight = float((relation or {}).get("weight", 1))
             if p.config.weights.normalize_circle:
@@ -70,15 +122,7 @@ class Coordination:
             desired = (
                 max(p.config.weights.min_adjust, min(p.config.weights.max_adjust, day * weight)) if day else 0
             )
-            current = await p.ctx.frequency.get_adjust(stream)
-            if not isinstance(current, dict) or not current.get("success"):
-                continue
-            prior = self.owned.get(stream)
-            original = prior[0] if prior else float(current["value"])
-            sent = await p.ctx.frequency.set_adjust(stream, desired)
-            if isinstance(sent, dict) and sent.get("success"):
-                self.owned[stream] = (original, desired)
-                p.store.data.setdefault("frequency_adjust", {})[stream] = desired
+            await self._apply_adjust(stream, desired)
 
     async def restore(self, only=None):
         for stream, (original, written) in list(self.owned.items()):

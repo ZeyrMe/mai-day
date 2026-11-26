@@ -59,9 +59,10 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
             response = await self.ctx.config.get("bot.qq_account", "")
             self.own_user_id = str(response.get("value") or "") if isinstance(response, dict) else ""
 
-        await self.prepare_day()
-        state, previous = self.engine.transition()
-        await self.coordination.catchup(state["sleeping"], previous)
+        key = self.engine.logical_date(self.engine.now()).isoformat()
+        if key in self.store.data["plans"]:
+            state, previous = self.engine.transition()
+            await self.coordination.catchup(state["sleeping"], previous)
         self.task = asyncio.create_task(self.loop(), name="zeyr-mai-day")
 
     async def on_unload(self):
@@ -121,6 +122,7 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
         self.calendar_checked = key
 
     async def loop(self):
+        await asyncio.sleep(3)
         while True:
             try:
                 if self.config.enabled:
@@ -185,6 +187,8 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
                 if group or self.config.private_delay_sleep:
                     self.engine.defer_sleep(now, self.config.private_delay_multiplier if not group else 1)
         self.state_dirty = True
+        if group:
+            await self.coordination.silence_stream(stream)
         return {"action": "continue"}
 
     def flush_state(self):
@@ -472,15 +476,16 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
 
     @API("get_state", public=True, version="1")
     async def api_state(self, stream_id="", **kwargs):
+        state = self.engine.state()
         owned_scope = not stream_id or await self.in_scope(stream_id=stream_id)
+        is_obs = bool(stream_id and self.stream_observation(stream_id))
+        sleeping_silent = bool(state["sleeping"] and self.config.sleep_silence)
         return result(
             {
-                **self.engine.state(),
+                **state,
                 "frequency_owner": bool(
                     self.config.enabled
-                    and self.config.weights.enabled
-                    and owned_scope
-                    and not (stream_id and self.stream_observation(stream_id))
+                    and (is_obs or (owned_scope and (self.config.weights.enabled or sleeping_silent)))
                 ),
             }
         )
