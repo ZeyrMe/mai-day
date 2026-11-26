@@ -1,0 +1,35 @@
+{
+  "manifest_version": 2,
+  "id": "zeyr.mai-day",
+  "version": "0.1.0",
+  "name": "麦的一天",
+  "description": "日程、连续动态与不丢消息睡眠",
+  "author": {
+    "name": "zeyr",
+    "url": "https://github.com/zeyr"
+  },
+  "license": "MIT",
+  "urls": {
+    "repository": "https://github.com/zeyr/mai-day"
+  },
+  "host_application": {
+    "min_version": "1.4.8",
+    "max_version": "1.4.99"
+  },
+  "sdk": {
+    "min_version": "2.23.0",
+    "max_version": "2.23.99"
+  },
+  "dependencies": [],
+  "capabilities": [
+    "api.get",
+    "api.call",
+    "send.text",
+    "maisaka.reply.generate"
+  ],
+  "i18n": {
+    "default_locale": "zh-CN"
+  },
+  "changelog": "CHANGELOG.md",
+  "plugin_type": "chat"
+}
