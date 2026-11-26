@@ -126,10 +126,13 @@ def test_deferral_keeps_original_and_obeys_hard_bedtime(engine):
 
 
 def test_continuous_awake_limit_can_recover(engine):
-    engine.config.presets["custom"] = Week(
+    custom = Week(
         weekdays=[Block(start="05:00", end="04:59", title="自由")],
         weekend=[Block(start="05:00", end="04:59", title="自由")],
     )
+    selected = engine.config.preset_map["custom"]
+    selected.weekdays, selected.weekend = custom.weekdays, custom.weekend
+
     engine.config.preset = "custom"
     engine.store.data["awake_since"] = at("2026-11-25T12:00").isoformat()
     assert engine.transition(at("2026-11-26T12:01"))[0]["sleeping"]
@@ -142,3 +145,31 @@ def test_corrupt_state_is_not_silently_erased(tmp_path):
     with pytest.raises(ValueError):
         module.StateFile(path, initial_state())
     assert path.read_text() == "corrupt"
+
+
+def test_v1_presets_and_volatility_migrate_before_sdk_defaults():
+    from conftest import module
+
+    plugin = module.Plugin()
+    plugin.set_plugin_config(
+        {
+            "plugin": {"config_version": "0.1.0"},
+            "preset": "custom",
+            "volatility_level": "fixed",
+            "presets": {
+                "custom": {
+                    "weekdays": [{"title": "自定义旧标题"}],
+                    "overrides": {"2": [{"title": "星期覆盖"}]},
+                }
+            },
+            "volatility": {"fixed": {"jitter_minutes": 3}},
+        }
+    )
+    stored = plugin.get_plugin_config_data()
+    assert isinstance(stored["presets"], list)
+    assert "volatility" not in stored
+    assert plugin.config.preset_map["custom"].weekdays[0].title == "自定义旧标题"
+    assert plugin.config.preset_map["custom"].override_map["2"][0].title == "星期覆盖"
+    assert plugin.config.volatility["fixed"].jitter_minutes == 3
+    plugin.set_plugin_config(stored)
+    assert plugin.config.volatility["fixed"].jitter_minutes == 3

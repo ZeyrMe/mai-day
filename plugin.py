@@ -9,11 +9,12 @@ from maibot_sdk import API, Command, HookHandler, MaiBotPlugin, Tool
 from maibot_sdk.types import HookOrder, ToolParameterInfo
 
 from .config_models import Block, Config
+from .ecosystem import EcosystemMixin
 from .engine import Engine, initial_state, parse
 from .runtime import StateFile, identity, inject, optional_api, render, result, send_receipt, send_succeeded
 
 
-class Plugin(MaiBotPlugin):
+class Plugin(EcosystemMixin, MaiBotPlugin):
     config_model = Config
 
     def __init__(self):
@@ -26,6 +27,9 @@ class Plugin(MaiBotPlugin):
         self.service_grants = {}
         self.calendar_checked = ""
         self.state_dirty = False
+
+    def console_text(self):
+        return f"作息预设：{self.config.preset}；波动：{self.config.volatility_level}；状态引擎：{'已载入' if self.engine else '未载入'}"
 
     async def on_load(self):
         self.store = StateFile(self.ctx.paths.data_dir / "life.json", initial_state())
@@ -101,6 +105,8 @@ class Plugin(MaiBotPlugin):
         # Never abort incoming messages. Only a genuinely participating Bot can defer sleep.
         if not self.config.enabled or not message:
             return {"action": "continue"}
+        if not await self.in_scope(message, **kwargs):
+            return {"action": "continue"}
         platform, uid, group, stream = identity(message)
         if not stream:
             return {"action": "continue"}
@@ -130,6 +136,8 @@ class Plugin(MaiBotPlugin):
 
     @HookHandler("maisaka.planner.before_request", order=HookOrder.LATE)
     async def planner(self, **kwargs):
+        if not await self.in_scope(**kwargs):
+            return {"action": "continue"}
         if not self.config.enabled:
             return {"action": "continue"}
         state = self.engine.state()
@@ -144,6 +152,8 @@ class Plugin(MaiBotPlugin):
 
     @HookHandler("maisaka.replyer.before_request", order=HookOrder.LATE)
     async def replyer(self, **kwargs):
+        if not await self.in_scope(**kwargs):
+            return {"action": "continue"}
         if not self.config.enabled:
             return {"action": "continue"}
         # Background document generation does not itself speak; the send guard still applies.
@@ -167,6 +177,8 @@ class Plugin(MaiBotPlugin):
         platform, _, group, stream = identity(message)
         if self.observation(platform, group) or self.stream_observation(stream):
             return {"action": "abort", "custom_result": {"reason": "observation_only"}}
+        if not await self.in_scope(stream_id=stream):
+            return {"action": "continue"}
         text = str(message.get("processed_plain_text") or "")
         grant = self.send_grants.get((stream, self.text_key(text)))
         granted = grant and parse(grant["expires_at"]) > self.engine.now()
@@ -213,7 +225,13 @@ class Plugin(MaiBotPlugin):
                 )
                 for target in self.config.targets
             )
-            if not matches or self.stream_observation(stream):
+            if (
+                not matches
+                or self.stream_observation(stream)
+                or not await self.target_in_scope(
+                    route.get("platform", "qq"), route.get("group_id", ""), route.get("user_id", ""), stream
+                )
+            ):
                 continue
             if not route.get("human_at") or now - parse(route["human_at"]) > timedelta(
                 minutes=self.config.active_group_recent_minutes
@@ -268,6 +286,8 @@ class Plugin(MaiBotPlugin):
         visibility="visible",
     )
     async def query_schedule(self, scope="all", **kwargs):
+        if not await self.in_scope(**kwargs):
+            return result(error="当前会话不在插件生效范围")
         if scope not in ("all", "plan", "current", "events"):
             return result(error="scope 应为 all / plan / current / events")
         now = self.engine.now()
@@ -303,6 +323,8 @@ class Plugin(MaiBotPlugin):
 
     @API("is_free_for_sharing", public=True, version="1")
     async def api_free(self, stream_id="", group_id="", **kwargs):
+        if not await self.in_scope(stream_id=stream_id or group_id):
+            return result({"value": False, "reason": "outside_scope"})
         allowed, reason = self.engine.free(stream_id or group_id)
         return result({"value": allowed, "reason": reason})
 
@@ -316,6 +338,8 @@ class Plugin(MaiBotPlugin):
 
     @API("reserve_share", public=True, version="1")
     async def api_reserve(self, stream_id: str, **kwargs):
+        if not await self.in_scope(stream_id=stream_id):
+            return result({"value": False, "reason": "outside_scope"})
         return result(self.engine.reserve(stream_id))
 
     @API("authorize_share", public=True, version="1")
@@ -325,6 +349,8 @@ class Plugin(MaiBotPlugin):
             return result(error="发送租约不存在或已过期")
         if not text.strip() or len(text) > 10000:
             return result(error="发送内容需要 1–10000 字")
+        if not await self.in_scope(stream_id=lease["stream_id"]):
+            return result({"value": False, "reason": "outside_scope"})
         allowed, reason = self.engine.free(lease["stream_id"], ignore_lease=True)
         if not allowed:
             return result({"value": False, "reason": reason})
@@ -343,6 +369,8 @@ class Plugin(MaiBotPlugin):
         pattern=r"^/日程\s*\+\s*(?P<start>\d{2}:\d{2})(?:-(?P<end>\d{2}:\d{2}))?\s+(?P<title>.+?)(?:\s+\[(?P<flex>locked|soft|open)\])?$",
     )
     async def schedule_add(self, message=None, matched_groups=None, stream_id="", **kwargs):
+        if not await self.in_scope(message, stream_id=stream_id):
+            return False, "当前会话不在插件生效范围", 1
         platform, uid, _, _ = identity(message or {})
         if not await self.is_admin(platform, uid):
             return False, "需要管理员权限", 1
@@ -377,6 +405,8 @@ class Plugin(MaiBotPlugin):
 
     @Command("wake", pattern=r"^/唤醒$")
     async def wake(self, message=None, stream_id="", **kwargs):
+        if not await self.in_scope(message, stream_id=stream_id):
+            return False, "当前会话不在插件生效范围", 1
         platform, uid, _, _ = identity(message or {})
         if not await self.is_admin(platform, uid):
             return False, "需要管理员权限", 1

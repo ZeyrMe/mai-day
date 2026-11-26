@@ -70,11 +70,11 @@ class Engine:
         data = self.store.data
         if key in data["plans"]:
             return data["plans"][key]
-        week = self.config.presets[self.config.preset]
+        week = self.config.preset_map[self.config.preset]
         weekend = (context or {}).get("is_workday") is False
         if (context or {}).get("is_workday") is None:
             weekend = day.weekday() >= 5
-        skeleton = week.overrides.get(str(day.isoweekday()), week.weekend if weekend else week.weekdays)
+        skeleton = week.override_map.get(str(day.isoweekday()), week.weekend if weekend else week.weekdays)
         rows = [self.block_row(day, block, f"{key}:{i}") for i, block in enumerate(skeleton)]
         rows += [
             self.block_row(day, extra.block, f"{key}:extra:{i}")

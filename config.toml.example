@@ -38,328 +38,347 @@ low_energy_hint = "，有点困"
 greeting_instruction = "根据材料，用当前会话的人设自然说一句{kind}，不要列清单。"
 event_template = "{kind}：{detail}"
 
+[scope]
+mode = "all"
+groups = []
+privates = []
+users = []
+exclude = []
+allow_private = true
+reference_cache_seconds = 60
+api_timeout_seconds = 0.4
+max_tracked_streams = 256
+
 [plugin]
 config_version = "0.1.0"
 
-[[presets.student.weekdays]]
+[[presets]]
+overrides = []
+name = "student"
+[[presets.weekdays]]
 start = "07:00"
 end = "08:00"
 title = "起床与早餐"
 flexibility = "soft"
 sleeping = false
 
-[[presets.student.weekdays]]
+[[presets.weekdays]]
 start = "08:00"
 end = "12:00"
 title = "课程"
 flexibility = "locked"
 sleeping = false
 
-[[presets.student.weekdays]]
+[[presets.weekdays]]
 start = "12:00"
 end = "14:00"
 title = "午饭与休息"
 flexibility = "soft"
 sleeping = false
 
-[[presets.student.weekdays]]
+[[presets.weekdays]]
 start = "14:00"
 end = "17:00"
 title = "课程"
 flexibility = "locked"
 sleeping = false
 
-[[presets.student.weekdays]]
+[[presets.weekdays]]
 start = "17:00"
 end = "19:00"
 title = "晚饭与自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.student.weekdays]]
+[[presets.weekdays]]
 start = "19:00"
 end = "21:00"
 title = "学习"
 flexibility = "soft"
 sleeping = false
 
-[[presets.student.weekdays]]
+[[presets.weekdays]]
 start = "21:00"
 end = "23:30"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.student.weekdays]]
+[[presets.weekdays]]
 start = "23:30"
 end = "07:00"
 title = "睡觉"
 flexibility = "soft"
 sleeping = true
 
-[[presets.student.weekend]]
+[[presets.weekend]]
 start = "08:00"
 end = "12:00"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.student.weekend]]
+[[presets.weekend]]
 start = "12:00"
 end = "13:00"
 title = "午饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.student.weekend]]
+[[presets.weekend]]
 start = "13:00"
 end = "23:30"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.student.weekend]]
+[[presets.weekend]]
 start = "23:30"
 end = "08:00"
 title = "睡觉"
 flexibility = "soft"
 sleeping = true
 
-[presets.student.overrides]
-
-[[presets.worker.weekdays]]
+[[presets]]
+overrides = []
+name = "worker"
+[[presets.weekdays]]
 start = "07:00"
 end = "09:00"
 title = "起床与早餐"
 flexibility = "soft"
 sleeping = false
 
-[[presets.worker.weekdays]]
+[[presets.weekdays]]
 start = "09:00"
 end = "12:00"
 title = "工作"
 flexibility = "locked"
 sleeping = false
 
-[[presets.worker.weekdays]]
+[[presets.weekdays]]
 start = "12:00"
 end = "13:00"
 title = "午饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.worker.weekdays]]
+[[presets.weekdays]]
 start = "13:00"
 end = "18:00"
 title = "工作"
 flexibility = "locked"
 sleeping = false
 
-[[presets.worker.weekdays]]
+[[presets.weekdays]]
 start = "18:00"
 end = "19:00"
 title = "晚饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.worker.weekdays]]
+[[presets.weekdays]]
 start = "19:00"
 end = "23:00"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.worker.weekdays]]
+[[presets.weekdays]]
 start = "23:00"
 end = "07:00"
 title = "睡觉"
 flexibility = "soft"
 sleeping = true
 
-[[presets.worker.weekend]]
+[[presets.weekend]]
 start = "08:00"
 end = "12:00"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.worker.weekend]]
+[[presets.weekend]]
 start = "12:00"
 end = "13:00"
 title = "午饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.worker.weekend]]
+[[presets.weekend]]
 start = "13:00"
 end = "23:30"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.worker.weekend]]
+[[presets.weekend]]
 start = "23:30"
 end = "08:00"
 title = "睡觉"
 flexibility = "soft"
 sleeping = true
 
-[presets.worker.overrides]
-
-[[presets.night_owl.weekdays]]
+[[presets]]
+overrides = []
+name = "night_owl"
+[[presets.weekdays]]
 start = "11:00"
 end = "13:00"
 title = "起床与午饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.night_owl.weekdays]]
+[[presets.weekdays]]
 start = "13:00"
 end = "18:00"
 title = "工作学习"
 flexibility = "soft"
 sleeping = false
 
-[[presets.night_owl.weekdays]]
+[[presets.weekdays]]
 start = "18:00"
 end = "19:00"
 title = "晚饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.night_owl.weekdays]]
+[[presets.weekdays]]
 start = "19:00"
 end = "02:00"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.night_owl.weekdays]]
+[[presets.weekdays]]
 start = "02:00"
 end = "11:00"
 title = "睡觉"
 flexibility = "soft"
 sleeping = true
 
-[[presets.night_owl.weekend]]
+[[presets.weekend]]
 start = "11:00"
 end = "13:00"
 title = "起床与午饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.night_owl.weekend]]
+[[presets.weekend]]
 start = "13:00"
 end = "18:00"
 title = "工作学习"
 flexibility = "soft"
 sleeping = false
 
-[[presets.night_owl.weekend]]
+[[presets.weekend]]
 start = "18:00"
 end = "19:00"
 title = "晚饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.night_owl.weekend]]
+[[presets.weekend]]
 start = "19:00"
 end = "02:00"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.night_owl.weekend]]
+[[presets.weekend]]
 start = "02:00"
 end = "11:00"
 title = "睡觉"
 flexibility = "soft"
 sleeping = true
 
-[presets.night_owl.overrides]
-
-[[presets.custom.weekdays]]
+[[presets]]
+overrides = []
+name = "custom"
+[[presets.weekdays]]
 start = "08:00"
 end = "12:00"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.custom.weekdays]]
+[[presets.weekdays]]
 start = "12:00"
 end = "13:00"
 title = "午饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.custom.weekdays]]
+[[presets.weekdays]]
 start = "13:00"
 end = "23:30"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.custom.weekdays]]
+[[presets.weekdays]]
 start = "23:30"
 end = "08:00"
 title = "睡觉"
 flexibility = "soft"
 sleeping = true
 
-[[presets.custom.weekend]]
+[[presets.weekend]]
 start = "08:00"
 end = "12:00"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.custom.weekend]]
+[[presets.weekend]]
 start = "12:00"
 end = "13:00"
 title = "午饭"
 flexibility = "soft"
 sleeping = false
 
-[[presets.custom.weekend]]
+[[presets.weekend]]
 start = "13:00"
 end = "23:30"
 title = "自由安排"
 flexibility = "open"
 sleeping = false
 
-[[presets.custom.weekend]]
+[[presets.weekend]]
 start = "23:30"
 end = "08:00"
 title = "睡觉"
 flexibility = "soft"
 sleeping = true
 
-[presets.custom.overrides]
-
-[volatility.fixed]
+[[volatility_profiles]]
 jitter_minutes = 0
 energy = false
 sleep_debt = false
-micro_probability = 0
+micro_probability = 0.0
 delay_sleep = false
+name = "fixed"
 
-[volatility.calm]
+[[volatility_profiles]]
 jitter_minutes = 10
 energy = true
 sleep_debt = false
 micro_probability = 0.1
 delay_sleep = false
+name = "calm"
 
-[volatility.natural]
+[[volatility_profiles]]
 jitter_minutes = 25
 energy = true
 sleep_debt = true
 micro_probability = 0.25
 delay_sleep = true
+name = "natural"
 
-[volatility.chaotic]
+[[volatility_profiles]]
 jitter_minutes = 45
 energy = true
 sleep_debt = true
 micro_probability = 0.45
 delay_sleep = true
+name = "chaotic"

@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 from maibot_sdk import Field, PluginConfigBase
 from pydantic import field_validator, model_validator
 
+from .ecosystem import ScopeConfig
+
 Flexibility = Literal["locked", "soft", "open"]
 
 
@@ -34,10 +36,32 @@ def blocks(*rows):
     return [Block(start=s, end=e, title=t, flexibility=f, sleeping=z) for s, e, t, f, z in rows]
 
 
+class WeekOverride(PluginConfigBase):
+    weekday: int = Field(default=1, ge=1, le=7, description="星期几，周一为 1")
+    blocks: list[Block] = Field(default_factory=list, description="覆盖该星期的时间块")
+
+
 class Week(PluginConfigBase):
     weekdays: list[Block] = Field(default_factory=list, description="周一至周五")
     weekend: list[Block] = Field(default_factory=list, description="周末和节假日")
-    overrides: dict[str, list[Block]] = Field(default_factory=dict, description="指定星期覆盖，1 至 7")
+    overrides: list[WeekOverride] = Field(default_factory=list, description="指定星期覆盖条目")
+
+    @field_validator("overrides", mode="before")
+    @classmethod
+    def legacy_overrides(cls, value):
+        return (
+            [{"weekday": int(day), "blocks": rows} for day, rows in value.items()]
+            if isinstance(value, dict)
+            else value
+        )
+
+    @property
+    def override_map(self):
+        return {str(row.weekday): row.blocks for row in self.overrides}
+
+
+class PresetDef(Week):
+    name: str = Field(default="custom", description="预设名称")
 
 
 def presets():
@@ -73,12 +97,12 @@ def presets():
         ("19:00", "02:00", "自由安排", "open", False),
         ("02:00", "11:00", "睡觉", "soft", True),
     )
-    return {
-        "student": Week(weekdays=student, weekend=free),
-        "worker": Week(weekdays=worker, weekend=free),
-        "night_owl": Week(weekdays=night, weekend=night),
-        "custom": Week(weekdays=free, weekend=free),
-    }
+    return [
+        PresetDef(name="student", weekdays=student, weekend=free),
+        PresetDef(name="worker", weekdays=worker, weekend=free),
+        PresetDef(name="night_owl", weekdays=night, weekend=night),
+        PresetDef(name="custom", weekdays=free, weekend=free),
+    ]
 
 
 class Volatility(PluginConfigBase):
@@ -89,8 +113,12 @@ class Volatility(PluginConfigBase):
     delay_sleep: bool = Field(default=False, description="参与聊天时弹性延睡")
 
 
+class VolatilityDef(Volatility):
+    name: str = Field(default="natural", description="波动档位名")
+
+
 def volatility():
-    return {
+    values = {
         "fixed": Volatility(),
         "calm": Volatility(jitter_minutes=10, energy=True, micro_probability=0.10),
         "natural": Volatility(
@@ -100,6 +128,8 @@ def volatility():
             jitter_minutes=45, energy=True, sleep_debt=True, micro_probability=0.45, delay_sleep=True
         ),
     }
+
+    return [VolatilityDef(name=name, **value.model_dump()) for name, value in values.items()]
 
 
 class Target(PluginConfigBase):
@@ -118,6 +148,7 @@ class PluginInfo(PluginConfigBase):
 
 
 class Config(PluginConfigBase):
+    scope: ScopeConfig = Field(default_factory=ScopeConfig, description="独立会话与用户生效范围")
     show_advanced: bool = Field(default=False, description="显示高级设置")
     plugin: PluginInfo = Field(default_factory=PluginInfo)
     enabled: bool = Field(default=True, description="启用生活状态")
@@ -154,8 +185,10 @@ class Config(PluginConfigBase):
     share_lease_seconds: int = Field(default=120, ge=10, le=600, description="发送租约有效期")
     tick_seconds: int = Field(default=30, ge=5, le=300, description="后台调度间隔")
     hint_chars: int = Field(default=25, ge=0, le=25, description="当下锚点最大字数")
-    presets: dict[str, Week] = Field(default_factory=presets, description="两层周模板")
-    volatility: dict[str, Volatility] = Field(default_factory=volatility, description="四档参数")
+    presets: list[PresetDef] = Field(default_factory=presets, description="命名两层周模板")
+    volatility_profiles: list[VolatilityDef] = Field(
+        default_factory=volatility, description="命名波动档位参数"
+    )
     micro_events: list[str] = Field(
         default_factory=lambda: ["取快递", "下楼散步", "买杯饮料"], description="小插曲池"
     )
@@ -176,6 +209,34 @@ class Config(PluginConfigBase):
     )
     event_template: str = Field(default="{kind}：{detail}", description="动态事件渲染")
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy(cls, values):
+        if isinstance(values, dict) and "volatility" in values and "volatility_profiles" not in values:
+            values = {
+                **values,
+                "volatility_profiles": [{"name": name, **row} for name, row in values["volatility"].items()],
+            }
+        return values
+
+    @field_validator("presets", mode="before")
+    @classmethod
+    def legacy_presets(cls, value):
+        if isinstance(value, dict):
+            return [
+                {"name": name, **(row.model_dump() if isinstance(row, Week) else row)}
+                for name, row in value.items()
+            ]
+        return value
+
+    @property
+    def preset_map(self):
+        return {row.name: row for row in self.presets}
+
+    @property
+    def volatility(self):
+        return {row.name: row for row in self.volatility_profiles}
+
     @field_validator("timezone")
     @classmethod
     def valid_zone(cls, value):
@@ -192,8 +253,10 @@ class Config(PluginConfigBase):
 
     @model_validator(mode="after")
     def selected_presets_exist(self):
-        if self.preset not in self.presets or self.volatility_level not in self.volatility:
+        if self.preset not in self.preset_map or self.volatility_level not in self.volatility:
             raise ValueError("选中的日程或波动预设不存在")
+        if len(self.preset_map) != len(self.presets) or len(self.volatility) != len(self.volatility_profiles):
+            raise ValueError("日程预设或波动档位名称重复")
         return self
 
 
@@ -207,3 +270,14 @@ for _name, _field in Config.model_fields.items():
             "depends_value": True,
         }
 Config.model_rebuild(force=True)
+
+
+# SDK labels otherwise fall back to Python field names in top-level sections.
+for _model in list(globals().values()):
+    if isinstance(_model, type) and issubclass(_model, PluginConfigBase):
+        for _field_name, _field_info in _model.model_fields.items():
+            _field_info.json_schema_extra = {
+                "label": _field_info.description or _field_name,
+                **(_field_info.json_schema_extra or {}),
+            }
+        _model.model_rebuild(force=True)
