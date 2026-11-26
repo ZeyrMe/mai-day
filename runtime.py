@@ -52,6 +52,14 @@ def inject(kwargs: dict, plugin_id: str, text: str, limit: int) -> dict:
             return {"action": "continue", "modified_kwargs": kwargs}
         identity = f"zeyr:{plugin_id}:context"
         items = [item for item in kwargs["items"] if item.get("meta", {}).get("item_id") != identity]
+        used = sum(
+            len(str(part.get("text", "")))
+            for item in items
+            if str(item.get("meta", {}).get("item_id", "")).startswith("zeyr:")
+            for part in item.get("parts", [])
+            if part.get("type") == "text"
+        )
+        limit = min(limit, max(0, 280 - used))
         items.append(
             {
                 "item_type": "UserMessageItem",

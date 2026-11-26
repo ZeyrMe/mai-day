@@ -25,4 +25,11 @@ WebUI 配置页提供运行状态面板与“刷新公共集合缓存”按钮�
 
 presets 改为带 name 的条目列表，volatility 改为 volatility_profiles，星期 overrides 改为 weekday / blocks 列表；旧结构自动转换。
 
-本批只升级公共基础设施，完整 v2.5 的业务能力尚未全部实现。旧配置保持可读，Runner 规范化写回后采用新结构；回退旧代码前需恢复相应配置快照。实例 config.toml 仍不进入 Git。
+本批提供公共基础设施。后续业务能力见下方 0.2.0 说明。旧配置保持可读，Runner 规范化写回后采用新结构；回退旧代码前需恢复相应配置快照。实例 config.toml 仍不进入 Git。
+
+
+## 0.2.0 · v2.5 业务增量
+
+块级 max_shift_minutes/negotiable/reply_weight、查档期 free/negotiable/conflict_locked、真实当前消息自记动态、作息偏好读取、可选午觉和每日标题润色。max_shift_minutes/reply_weight 在 TOML 中用 -1 表示继承（JSON 的 null 也兼容），0 明确表示不偏移/不加权。catchup 过滤宿主自身消息与已标记 Bot，至少99条才摘要，按上限读最新记录并以 replyable=false 插卡，同睡眠周期去重、失败保留重试。唯一频率合成器按会话与关系相乘、可选归一化，停用/卸载条件恢复。控制台有临时唤醒、频率/爬楼状态、无外网时间线图片和保留原底稿的未来软安排重排。
+
+接口保持 `@API(..., version="1")`，缺少可选插件时自动降级。模型生成、网络和宿主上下文效果仍需结合实例配置验收；离线测试不等同于真实聊天送达。

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "id": "zeyr.mai-day",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "name": "麦的一天",
   "description": "日程、连续动态与不丢消息睡眠",
   "author": {
@@ -25,7 +25,14 @@
     "api.get",
     "api.call",
     "send.text",
-    "maisaka.reply.generate"
+    "maisaka.reply.generate",
+    "frequency.get_adjust",
+    "frequency.set_adjust",
+    "message.get_by_time_in_chat",
+    "llm.generate",
+    "maisaka.context.append",
+    "render.html2png",
+    "config.get"
   ],
   "i18n": {
     "default_locale": "zh-CN"

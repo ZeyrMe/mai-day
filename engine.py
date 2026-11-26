@@ -63,6 +63,9 @@ class Engine:
             "title": block.title,
             "flexibility": block.flexibility,
             "sleeping": block.sleeping,
+            "max_shift_minutes": block.max_shift_minutes,
+            "negotiable": block.negotiable and block.flexibility != "locked",
+            "reply_weight": block.reply_weight,
         }
 
     def plan(self, day: date, context=None, todos=None):
@@ -115,7 +118,9 @@ class Engine:
         for row in rows:
             if row["flexibility"] == "locked":
                 continue
-            delta = rng.randint(-settings.jitter_minutes, settings.jitter_minutes)
+            jitter = row.get("max_shift_minutes")
+            jitter = settings.jitter_minutes if jitter is None or jitter < 0 else jitter
+            delta = rng.randint(-jitter, jitter)
             start, end = (
                 parse(row["start"]) + timedelta(minutes=delta),
                 parse(row["end"]) + timedelta(minutes=delta),
@@ -142,6 +147,28 @@ class Engine:
                         "duration_minutes": min(
                             self.config.micro_duration_minutes, int((end - start).total_seconds() / 60)
                         ),
+                    }
+                )
+        nap = self.config.nap
+        if (
+            nap.enabled
+            and (not nap.debt_only or data["sleep_debt_minutes"] > 0)
+            and rng.random() < nap.probability
+        ):
+            start, finish = self.wall(day, nap.start), self.wall(day, nap.end)
+            end = min(finish, start + timedelta(minutes=nap.duration_minutes))
+            if end > start and not any(
+                start < parse(row["end"]) and parse(row["start"]) < end for row in locked
+            ):
+                rows.append(
+                    {
+                        "id": f"{key}:nap",
+                        "start": start.isoformat(),
+                        "end": end.isoformat(),
+                        "title": nap.title,
+                        "flexibility": "soft",
+                        "sleeping": True,
+                        "negotiable": True,
                     }
                 )
         plan = {
@@ -188,6 +215,9 @@ class Engine:
         if calendar is not None:
             rows = [row for row in rows if not row["id"].startswith("todo:")]
             rows.extend(dict(row) for row in calendar.values() if parse(row["end"]) > now - timedelta(days=3))
+        for revision in self.store.data.get("future_revisions", {}).values():
+            rows = [row for row in rows if row["id"] not in revision["suppressed"]]
+            rows.extend(dict(row) for row in revision["blocks"])
         # Delays and compensation are overlays, never mutations of the original plan.
         for row in rows:
             overlay = self.store.data["overlays"].get(row["id"], {})
@@ -280,7 +310,11 @@ class Engine:
             ]
             if impending and self.config.good_night_mode == "passive_hint":
                 status = self.config.sleepy_hint
-            elif self.config.volatility[self.config.volatility_level].energy and 13 <= now.hour < 15:
+            elif (
+                self.config.volatility[self.config.volatility_level].energy
+                and self.config.nap.enabled
+                and self.config.nap.start <= now.strftime("%H:%M") < self.config.nap.end
+            ):
                 status = self.config.low_energy_hint
         return {
             "now": now.isoformat(),
@@ -294,6 +328,8 @@ class Engine:
             ],
             "revision": len(self.store.data["events"]),
             "sleep_debt_minutes": self.store.data["sleep_debt_minutes"],
+            "negotiable": current.get("negotiable", current["flexibility"] != "locked"),
+            "frequency_adjust": self.store.data.get("frequency_adjust", {}),
         }
 
     def transition(self, now=None):
@@ -306,6 +342,10 @@ class Engine:
             self.store.data["awake_since"] = now.isoformat()
         if previous and previous["sleeping"] and not state["sleeping"]:
             self.store.data["awake_since"] = now.isoformat()
+            if str(previous.get("block_id", "")).endswith(":nap"):
+                self.store.data["sleep_debt_minutes"] = max(
+                    0, self.store.data["sleep_debt_minutes"] - self.config.nap.duration_minutes
+                )
             overlay = self.store.data["overlays"].get(previous.get("block_id"), {})
             compensation = overlay.get("compensation_minutes", 0)
             if compensation and not overlay.get("compensated"):
@@ -333,7 +373,7 @@ class Engine:
         self.store.save()
         return state, previous
 
-    def defer_sleep(self, now):
+    def defer_sleep(self, now, multiplier=1):
         settings = self.config.volatility[self.config.volatility_level]
         if not settings.delay_sleep or self.state(now)["sleeping"]:
             return False
@@ -357,7 +397,7 @@ class Engine:
             if item["id"] == row["id"]
         )
         hard = self.wall(date.fromisoformat(row["id"][:10]), self.config.hard_bedtime)
-        until = min(now + timedelta(minutes=self.config.delay_minutes), hard, parse(row["end"]))
+        until = min(now + timedelta(minutes=self.config.delay_minutes * multiplier), hard, parse(row["end"]))
         # A locked upcoming appointment always limits the deferral.
         for anchor in rows:
             if anchor["flexibility"] == "locked" and now < parse(anchor["start"]) < until:
@@ -433,6 +473,65 @@ class Engine:
         self.store.data["manual"].append(row)
         self.event("manual_added", row["title"], now, event_id=row["id"], block=row)
         return row
+
+    def replan_future(self, day, now):
+        original = self.plan(day)
+
+        class DraftStore:
+            def __init__(self):
+                self.data = initial_state()
+
+            def save(self):
+                pass
+
+        draft = Engine(self.config, DraftStore())
+        revised = draft.plan(day, original.get("calendar"), [])
+        revision_id = uuid.uuid4().hex
+        future = [
+            {**row, "id": f"revision:{revision_id}:{row['id']}"}
+            for row in revised["blocks"]
+            if parse(row["start"]) > now and row["flexibility"] != "locked"
+        ]
+        suppressed = [
+            row["id"]
+            for row in original["blocks"]
+            if parse(row["start"]) > now
+            and row["flexibility"] != "locked"
+            and not row["id"].startswith("todo:")
+        ]
+        self.store.data.setdefault("future_revisions", {})[day.isoformat()] = {
+            "blocks": future,
+            "suppressed": suppressed,
+        }
+        self.event("future_plan_refreshed", day.isoformat(), now, revision=revision_id)
+        return future
+
+    def availability(self, start, end):
+        now = self.now()
+        left = parse(start)
+        right = parse(end) if end else left + timedelta(hours=1)
+        if left.tzinfo is None or right.tzinfo is None or right <= left:
+            raise ValueError("需要有时区且结束晚于开始的时段")
+        if left < now or right > self.wall(
+            self.logical_date(now) + timedelta(days=1), f"{self.config.day_rollover_hour:02d}:00"
+        ):
+            raise ValueError("仅检查今日后续时段")
+        rows = self.effective_blocks(now)
+        conflicts = [row for row in rows if left < parse(row["end"]) and parse(row["start"]) < right]
+        hard = [row for row in conflicts if row["flexibility"] == "locked" or not row.get("negotiable", True)]
+        status = (
+            "conflict_locked"
+            if hard
+            else "negotiable"
+            if any(row["flexibility"] == "soft" for row in conflicts)
+            else "free"
+        )
+        free = [
+            {"start": row["start"], "end": row["end"]}
+            for row in rows
+            if row["flexibility"] == "open" and parse(row["end"]) > now
+        ]
+        return {"availability": status, "conflicts": conflicts, "free_windows": free}
 
     def free(self, stream_id, now=None, *, ignore_lease=False):
         now = now or self.now()

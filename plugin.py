@@ -3,19 +3,34 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import html
+import json
 from datetime import timedelta
 
 from maibot_sdk import API, Command, HookHandler, MaiBotPlugin, Tool
+from maibot_sdk.config_widgets import ConfigWidget, ConfigWidgetState
 from maibot_sdk.types import HookOrder, ToolParameterInfo
 
 from .config_models import Block, Config
-from .ecosystem import EcosystemMixin
+from .coordination import Coordination
+from .ecosystem import ChatIdentity, EcosystemMixin
 from .engine import Engine, initial_state, parse
 from .runtime import StateFile, identity, inject, optional_api, render, result, send_receipt, send_succeeded
 
 
 class Plugin(EcosystemMixin, MaiBotPlugin):
     config_model = Config
+    config_widgets = EcosystemMixin.config_widgets + [
+        ConfigWidget(id="wake_now", kind="action", label="临时唤醒"),
+        ConfigWidget(id="catchup_status", kind="status", label="爬楼与频率状态"),
+        ConfigWidget(id="render_timeline", kind="action", label="刷新今日时间线图"),
+        ConfigWidget(
+            id="regenerate_plan",
+            kind="action",
+            label="刷新今日未来软安排",
+            confirmation="保留已发生部分和刚性约定，重新投影未来软安排，继续？",
+        ),
+    ]
 
     def __init__(self):
         super().__init__()
@@ -27,23 +42,39 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
         self.service_grants = {}
         self.calendar_checked = ""
         self.state_dirty = False
+        self.coordination = Coordination(self)
+        self.timeline_image = None
+        self.widget_task = None
+        self.own_user_id = ""
 
     def console_text(self):
-        return f"作息预设：{self.config.preset}；波动：{self.config.volatility_level}；状态引擎：{'已载入' if self.engine else '未载入'}"
+        last = self.store.data.get("last_state", {}) if self.engine else {}
+        debt = self.store.data.get("sleep_debt_minutes", 0) if self.engine else 0
+        return f"作息预设：{self.config.preset}；波动：{self.config.volatility_level}\n当前：{last}\n睡眠债：{debt} 分钟"
 
     async def on_load(self):
         self.store = StateFile(self.ctx.paths.data_dir / "life.json", initial_state())
         self.engine = Engine(self.config, self.store)
+        with contextlib.suppress(Exception):
+            response = await self.ctx.config.get("bot.qq_account", "")
+            self.own_user_id = str(response.get("value") or "") if isinstance(response, dict) else ""
+
         await self.prepare_day()
-        self.engine.transition()
+        state, previous = self.engine.transition()
+        await self.coordination.catchup(state["sleeping"], previous)
         self.task = asyncio.create_task(self.loop(), name="zeyr-mai-day")
 
     async def on_unload(self):
+        if self.widget_task:
+            self.widget_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.widget_task
         if self.task:
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
         self.flush_state()
+        await self.coordination.restore()
         self.send_grants.clear()
         self.command_grants.clear()
         self.service_grants.clear()
@@ -60,7 +91,31 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
         key = day.isoformat()
         context = await optional_api(self.ctx, "zeyr.mai-calendar.get_day_context", date=key)
         todos = await optional_api(self.ctx, "zeyr.mai-calendar.get_schedulable_todos", date=key)
-        self.engine.plan(day, context, (todos or {}).get("items", []))
+        new = key not in self.store.data["plans"]
+        routine = (
+            await optional_api(self.ctx, "zeyr.mai-profile.get_snapshot", topic="routine") if new else None
+        )
+        plan = self.engine.plan(day, context, (todos or {}).get("items", []))
+        if new:
+            plan["routine"] = (routine or {}).get("entries", [])
+            if self.config.daily_polish.enabled:
+                plan["polish_attempted"] = True
+                try:
+                    async with asyncio.timeout(self.config.daily_polish.timeout_seconds):
+                        response = await self.ctx.llm.generate(
+                            render(
+                                self.config.daily_polish.instruction,
+                                material=json.dumps(plan, ensure_ascii=False),
+                            ),
+                            model=self.config.daily_polish.model_task,
+                        )
+                    titles = json.loads(str(response.get("response") or response.get("text") or ""))
+                    for row in plan["blocks"]:
+                        if row["flexibility"] != "locked" and isinstance(titles.get(row["id"]), str):
+                            row["title"] = titles[row["id"]][:100]
+                except Exception:
+                    self.ctx.logger.warning("每日润色未成功，保留原始标题")
+            self.store.save()
         if todos is not None:
             self.engine.sync_calendar((todos or {}).get("items", []), now)
         self.calendar_checked = key
@@ -72,7 +127,9 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
                     await self.prepare_day()
                     state, previous = self.engine.transition()
                     if previous:
+                        await self.coordination.catchup(state["sleeping"], previous)
                         await self.greet(state, previous)
+                await self.coordination.frequency()
                 self.flush_state()
             except asyncio.CancelledError:
                 raise
@@ -112,17 +169,21 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
             return {"action": "continue"}
         now = self.engine.now()
         route = self.store.data["routes"].setdefault(stream, {})
-        route.update(platform=platform, group_id=group, user_id=uid)
+        route.update(
+            platform=platform, group_id=group, user_id=uid, message_id=str(message.get("message_id") or "")
+        )
         bot = await optional_api(self.ctx, "zeyr.mai-circle.is_bot", platform=platform, user_id=uid)
         if not (bot and bot.get("value")):
             route["human_at"] = now.isoformat()
+            self.coordination.participant(stream, uid, now)
             last = self.last_bot.get(stream)
             if (
                 last
                 and now - last <= timedelta(minutes=self.config.engaged_minutes)
                 and not self.observation(platform, group)
             ):
-                self.engine.defer_sleep(now)
+                if group or self.config.private_delay_sleep:
+                    self.engine.defer_sleep(now, self.config.private_delay_multiplier if not group else 1)
         self.state_dirty = True
         return {"action": "continue"}
 
@@ -204,6 +265,10 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
 
     async def greet(self, state, previous):
         # Catch sleep transitions within the greeting window, never replay old transitions after restart.
+        if str(state.get("current_block", {}).get("id", "")).endswith(":nap") or str(
+            previous.get("block_id", "")
+        ).endswith(":nap"):
+            return
         changed = state["sleeping"] != previous["sleeping"]
         if not changed:
             return
@@ -281,16 +346,37 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
         parameters=[
             ToolParameterInfo(
                 name="scope", description="plan / current / events / all", required=False, default="all"
-            )
+            ),
+            ToolParameterInfo(name="start", description="查档期开始 ISO 时间", required=False, default=""),
+            ToolParameterInfo(name="end", description="查档期结束 ISO 时间", required=False, default=""),
+            ToolParameterInfo(
+                name="event_text", description="记录刚发生的生活变化", required=False, default=""
+            ),
         ],
         visibility="visible",
     )
-    async def query_schedule(self, scope="all", **kwargs):
+    async def query_schedule(self, scope="all", start="", end="", event_text="", **kwargs):
         if not await self.in_scope(**kwargs):
             return result(error="当前会话不在插件生效范围")
         if scope not in ("all", "plan", "current", "events"):
             return result(error="scope 应为 all / plan / current / events")
         now = self.engine.now()
+        if start:
+            try:
+                return result(self.engine.availability(start, end))
+            except ValueError as exc:
+                return result(error=str(exc))
+        if event_text:
+            chat = ChatIdentity.from_message(kwargs.get("message") or kwargs, kwargs.get("stream_id") or "")
+            route = self.store.data["routes"].get(chat.stream_id, {})
+            message_id = route.get("message_id", "")
+            if not chat.user_id or chat.user_id != route.get("user_id") or not message_id:
+                return result(error="记录动态需要真实当前消息")
+            return result(
+                self.engine.event(
+                    "self_note", event_text[:1000], now, event_id=f"note:{chat.stream_id}:{message_id}"
+                )
+            )
         data = {}
         if scope in ("all", "plan"):
             data["plan"] = self.engine.plan(self.engine.logical_date(now))
@@ -309,7 +395,9 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
             return result(error="需要会话和 1–10000 字的服务消息")
         now = self.engine.now()
         self.service_grants = {key: expiry for key, expiry in self.service_grants.items() if expiry > now}
-        self.service_grants[(stream_id, self.text_key(text))] = now + timedelta(seconds=30)
+        self.service_grants[(stream_id, self.text_key(text))] = now + timedelta(
+            seconds=self.config.service_grant_seconds
+        )
         return result({"value": True})
 
     @API("revoke_service_send", public=True, version="1")
@@ -317,14 +405,92 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
         self.service_grants.pop((stream_id, self.text_key(text)), None)
         return result({"value": True})
 
+    @API("check_availability", public=True, version="1")
+    async def api_availability(self, start, end="", **kwargs):
+        try:
+            return result(self.engine.availability(start, end))
+        except ValueError as exc:
+            return result(error=str(exc))
+
+    async def get_config_widget_state(self):
+        states = await super().get_config_widget_state()
+        return {
+            **states,
+            "wake_now": ConfigWidgetState(disabled=not bool(self.engine)),
+            "render_timeline": ConfigWidgetState(
+                disabled=not self.engine or bool(self.widget_task and not self.widget_task.done())
+            ),
+            "regenerate_plan": ConfigWidgetState(disabled=not self.engine),
+            "catchup_status": ConfigWidgetState(
+                image=self.timeline_image,
+                text=json.dumps(
+                    {
+                        "catchup": self.coordination.status,
+                        "frequency": {stream: value[1] for stream, value in self.coordination.owned.items()},
+                    },
+                    ensure_ascii=False,
+                )[:2000],
+            ),
+        }
+
+    async def render_timeline(self):
+        try:
+            rows = self.engine.effective_blocks(self.engine.now())
+            body = "".join(
+                f"<tr><td>{html.escape(row['start'][11:16])}–{html.escape(row['end'][11:16])}</td><td>{html.escape(row['title'])}</td><td>{html.escape(row['flexibility'])}</td></tr>"
+                for row in rows
+                if parse(row["end"]) > self.engine.now()
+            )
+            image = await self.ctx.render.html2png(
+                "<html><meta charset='utf-8'><body style='font:18px sans-serif;padding:24px;background:#f4f5f7'><h2>今日后续时间线</h2><table cellspacing='12'>"
+                + body
+                + "</table></body></html>",
+                allow_network=False,
+            )
+            if isinstance(image, dict) and image.get("image_base64"):
+                self.timeline_image = "data:image/png;base64," + image["image_base64"]
+        except Exception:
+            self.ctx.logger.warning("时间线渲染失败，继续提供文字状态")
+
+    async def on_config_widget_action(self, action_id):
+        if action_id == "render_timeline" and self.engine:
+            if not self.widget_task or self.widget_task.done():
+                self.widget_task = asyncio.create_task(self.render_timeline())
+            return
+        if action_id == "regenerate_plan" and self.engine:
+            now = self.engine.now()
+            day = self.engine.logical_date(now)
+            self.engine.replan_future(day, now)
+            return
+        if action_id == "wake_now" and self.engine:
+            self.store.data["wake_until"] = (
+                self.engine.now() + timedelta(minutes=self.config.wake_minutes)
+            ).isoformat()
+            self.store.save()
+            return
+        await super().on_config_widget_action(action_id)
+
     @API("get_state", public=True, version="1")
-    async def api_state(self, **kwargs):
-        return result(self.engine.state())
+    async def api_state(self, stream_id="", **kwargs):
+        owned_scope = not stream_id or await self.in_scope(stream_id=stream_id)
+        return result(
+            {
+                **self.engine.state(),
+                "frequency_owner": bool(
+                    self.config.enabled
+                    and self.config.weights.enabled
+                    and owned_scope
+                    and not (stream_id and self.stream_observation(stream_id))
+                ),
+            }
+        )
 
     @API("is_free_for_sharing", public=True, version="1")
     async def api_free(self, stream_id="", group_id="", **kwargs):
         if not await self.in_scope(stream_id=stream_id or group_id):
             return result({"value": False, "reason": "outside_scope"})
+        if not self.target_active(stream_id or group_id):
+            return result({"value": False, "reason": "inactive_target"})
         allowed, reason = self.engine.free(stream_id or group_id)
         return result({"value": allowed, "reason": reason})
 
@@ -336,8 +502,18 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
             self.engine.event("external", text, self.engine.now(), source=source, event_id=event_id)
         )
 
+    def target_active(self, stream):
+        route = self.store.data["routes"].get(stream, {})
+        return bool(
+            route.get("human_at")
+            and self.engine.now() - parse(route["human_at"])
+            <= timedelta(minutes=self.config.active_group_recent_minutes)
+        )
+
     @API("reserve_share", public=True, version="1")
     async def api_reserve(self, stream_id: str, **kwargs):
+        if not self.target_active(stream_id):
+            return result({"value": False, "reason": "inactive_target"})
         if not await self.in_scope(stream_id=stream_id):
             return result({"value": False, "reason": "outside_scope"})
         return result(self.engine.reserve(stream_id))
@@ -395,7 +571,7 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
 
     async def command_response(self, text, stream):
         # Exact output grant for this validated command; never a stream-wide bypass.
-        expiry = self.engine.now() + timedelta(seconds=30)
+        expiry = self.engine.now() + timedelta(seconds=self.config.service_grant_seconds)
         key = (stream, self.text_key(text))
         self.send_grants[key] = {"id": "command", "expires_at": expiry.isoformat()}
         try:
