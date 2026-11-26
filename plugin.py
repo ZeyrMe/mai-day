@@ -10,7 +10,7 @@ from maibot_sdk.types import HookOrder, ToolParameterInfo
 
 from .config_models import Block, Config
 from .engine import Engine, initial_state, parse
-from .runtime import StateFile, identity, inject, optional_api, render, result
+from .runtime import StateFile, identity, inject, optional_api, render, result, send_receipt, send_succeeded
 
 
 class Plugin(MaiBotPlugin):
@@ -23,7 +23,9 @@ class Plugin(MaiBotPlugin):
         self.last_bot = {}
         self.send_grants = {}
         self.command_grants = {}
+        self.service_grants = {}
         self.calendar_checked = ""
+        self.state_dirty = False
 
     async def on_load(self):
         self.store = StateFile(self.ctx.paths.data_dir / "life.json", initial_state())
@@ -37,8 +39,10 @@ class Plugin(MaiBotPlugin):
             self.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
+        self.flush_state()
         self.send_grants.clear()
         self.command_grants.clear()
+        self.service_grants.clear()
 
     async def on_config_update(self, scope, config_data, version):
         if scope == "self" and self.engine:
@@ -69,6 +73,7 @@ class Plugin(MaiBotPlugin):
                 raise
             except Exception:
                 self.ctx.logger.exception("生活调度失败；保留现有状态，下轮重试")
+            self.flush_state()
             await asyncio.sleep(self.config.tick_seconds)
 
     def observation(self, platform, group_id):
@@ -112,8 +117,13 @@ class Plugin(MaiBotPlugin):
                 and not self.observation(platform, group)
             ):
                 self.engine.defer_sleep(now)
-        self.store.save()
+        self.state_dirty = True
         return {"action": "continue"}
+
+    def flush_state(self):
+        if self.state_dirty:
+            self.store.save()
+            self.state_dirty = False
 
     def command_allowed(self, stream):
         return self.command_grants.get(stream, self.engine.now()) > self.engine.now()
@@ -166,6 +176,9 @@ class Plugin(MaiBotPlugin):
             info = message.setdefault("message_info", {})
             info.setdefault("additional_config", {})["zeyr_day_lease"] = grant["id"]
             return {"action": "continue", "modified_kwargs": {**kwargs, "message": message}}
+        expires = self.service_grants.pop((stream, self.text_key(text)), None)
+        if expires and expires > self.engine.now():
+            return {"action": "continue"}
         if self.config.sleep_silence and self.engine.state()["sleeping"]:
             return {"action": "abort", "custom_result": {"reason": "sleep"}}
         return {"action": "continue"}
@@ -235,12 +248,8 @@ class Plugin(MaiBotPlugin):
             response = await self.ctx.send.text(
                 text, stream, return_details=True, sync_to_maisaka_history=True
             )
-            sent = bool(isinstance(response, dict) and response.get("success") and response.get("sent"))
-            receipt = (
-                str((response.get("message_id") if isinstance(response, dict) else "") or lease["id"])
-                if sent
-                else ""
-            )
+            sent = send_succeeded(response)
+            receipt = send_receipt(response, lease["id"]) if sent else ""
             if sent:
                 self.store.data["greetings"][key] = receipt
         finally:
@@ -272,6 +281,21 @@ class Plugin(MaiBotPlugin):
             cutoff = now - timedelta(days=self.config.window_days)
             data["events"] = [row for row in self.store.data["events"] if parse(row["at"]) >= cutoff]
         return result(data)
+
+    @API("authorize_service_send", public=True, version="1")
+    async def api_service_send(self, stream_id: str, text: str, **kwargs):
+        # Code-only API, never exposed as a model Tool. Authorization expires after 30 seconds.
+        if not stream_id or not text.strip() or len(text) > 10000:
+            return result(error="需要会话和 1–10000 字的服务消息")
+        now = self.engine.now()
+        self.service_grants = {key: expiry for key, expiry in self.service_grants.items() if expiry > now}
+        self.service_grants[(stream_id, self.text_key(text))] = now + timedelta(seconds=30)
+        return result({"value": True})
+
+    @API("revoke_service_send", public=True, version="1")
+    async def api_revoke_service_send(self, stream_id: str, text: str, **kwargs):
+        self.service_grants.pop((stream_id, self.text_key(text)), None)
+        return result({"value": True})
 
     @API("get_state", public=True, version="1")
     async def api_state(self, **kwargs):

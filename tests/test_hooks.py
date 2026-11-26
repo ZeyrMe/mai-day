@@ -15,9 +15,7 @@ def plugin(tmp_path):
     plugin.engine = Engine(plugin.config, plugin.store)
     plugin._set_context(
         SimpleNamespace(
-            send=SimpleNamespace(
-                text=AsyncMock(return_value={"success": True, "sent": True, "message_id": "sent"})
-            )
+            send=SimpleNamespace(text=AsyncMock(return_value={"sent": True, "message_id": "sent"}))
         )
     )
     return plugin
@@ -111,3 +109,74 @@ async def test_share_authorization_rechecks_sleep_at_actual_send(plugin):
     plugin.engine.free = lambda *args, **kwargs: (False, "busy")
     response = await plugin.before_send(message={"session_id": "s", "processed_plain_text": "见闻"})
     assert response["action"] == "abort"
+
+
+@pytest.mark.parametrize("anchor,limit", [("", 25), ("休息", 0)])
+async def test_empty_hint_retains_sleep_tool_filter(plugin, anchor, limit):
+    plugin.engine.state = lambda *args: {"sleeping": True, "phase": "sleep", "anchor": anchor}
+    plugin.config.hint_chars = limit
+    original = [{"function": {"name": name}} for name in ["reply", "send_emoji", "smart_fetch"]]
+    response = await plugin.planner(session_id="s", items=[], tool_definitions=original)
+    assert response["modified_kwargs"]["tool_definitions"] == original[2:]
+
+
+async def test_service_authorization_is_exact_one_use_and_observation_still_wins(plugin):
+    from test_mai_day.config_models import Target
+
+    plugin.engine.state = lambda *args: {"sleeping": True, "phase": "sleep"}
+    await plugin.api_service_send("s", "到期提醒")
+    assert (await plugin.before_send(message={"session_id": "other", "processed_plain_text": "到期提醒"}))[
+        "action"
+    ] == "abort"
+    assert (await plugin.before_send(message={"session_id": "s", "processed_plain_text": "别的内容"}))[
+        "action"
+    ] == "abort"
+    assert (await plugin.before_send(message={"session_id": "s", "processed_plain_text": "到期提醒"}))[
+        "action"
+    ] == "continue"
+    assert (await plugin.before_send(message={"session_id": "s", "processed_plain_text": "到期提醒"}))[
+        "action"
+    ] == "abort"
+    plugin.config.passive_observation_groups = [Target(group_id="observe")]
+    await plugin.api_service_send("s", "到期提醒")
+    assert (
+        await plugin.before_send(
+            message={
+                "session_id": "s",
+                "platform": "qq",
+                "message_info": {"group_info": {"group_id": "observe"}},
+                "processed_plain_text": "到期提醒",
+            }
+        )
+    )["action"] == "abort"
+
+
+async def test_service_authorization_expires_and_can_be_revoked(plugin):
+    plugin.engine.state = lambda *args: {"sleeping": True, "phase": "sleep"}
+    await plugin.api_service_send("s", "响应")
+    plugin.service_grants[("s", plugin.text_key("响应"))] = plugin.engine.now() - timedelta(seconds=1)
+    assert (await plugin.before_send(message={"session_id": "s", "processed_plain_text": "响应"}))[
+        "action"
+    ] == "abort"
+    await plugin.api_service_send("s", "响应")
+    await plugin.api_revoke_service_send("s", "响应")
+    assert not plugin.service_grants
+
+
+async def test_receiving_messages_batches_route_persistence(plugin, monkeypatch):
+    from unittest.mock import Mock
+
+    save = Mock(wraps=plugin.store.save)
+    monkeypatch.setattr(plugin.store, "save", save)
+    message = {"platform": "qq", "session_id": "s", "message_info": {"user_info": {"user_id": "u"}}}
+    for _ in range(10):
+        await plugin.observe_message(message=message)
+    save.assert_not_called()
+    assert plugin.store.data["routes"]["s"]["human_at"]
+    plugin.flush_state()
+    save.assert_called_once()
+    plugin.flush_state()
+    save.assert_called_once()
+    await plugin.observe_message(message=message)
+    await plugin.on_unload()
+    assert save.call_count == 2

@@ -45,7 +45,7 @@ def item_text(items: list[dict]) -> str:
 
 def inject(kwargs: dict, plugin_id: str, text: str, limit: int) -> dict:
     if not text:
-        return {"action": "continue"}
+        return {"action": "continue", "modified_kwargs": kwargs}
     if "items" in kwargs:
         # Context Items v1, not OpenAI wire messages. Replace only our own transient item.
         if kwargs.get("item_schema_version", 1) != 1:
@@ -154,3 +154,12 @@ async def optional_api(ctx: Any, full_name: str, **kwargs: Any) -> Any:
         return payload.get("data")
     except (Exception, TimeoutError):
         return None
+
+
+def send_succeeded(response: Any) -> bool:
+    """SDK text() returns bool or SendResult, which has no success field."""
+    return response is True or (isinstance(response, dict) and response.get("sent") is True)
+
+
+def send_receipt(response: Any, fallback: str) -> str:
+    return str(response.get("message_id") or fallback) if isinstance(response, dict) else fallback
