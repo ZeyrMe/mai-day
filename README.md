@@ -1,120 +1,77 @@
-<div align="center">
+# 麦的一天（mai-day）
 
-# 麦的一天 · `zeyr.mai-day`
+为麦麦提供日常作息、日程安排与夜间安静控制
 
-**给 Bot 一条有呼吸感的真实作息时间线：忙时少插话、被约懂推脱、睡着群聊零思考消耗、醒来超 99 条自动爬楼补课**
+## 功能介绍
 
-![Version](https://img.shields.io/badge/version-0.2.0-brightgreen)
-![MaiBot](https://img.shields.io/badge/MaiBot-1.4.8%2B-2f81f7)
-![SDK](https://img.shields.io/badge/SDK-2.23.0-0e8a16)
-![Standalone](https://img.shields.io/badge/独立运行-支持-blue)
+- **灵活的日常作息**：内置学生党、上班族、夜猫子与自定义 4 套周模板；日程块区分固定（`locked`）、常规（`soft`）与空闲（`open`），支持按波动档位产生自然的早晚浮动与午睡。
+- **夜间安静不丢记忆**：入睡时将群聊发言频率调至 `0.0`，不停止接收消息和学习记忆，同时避免夜间无意义触发对话思考；私聊则通过发送护栏保持安静。
+- **睡醒消息回顾**：睡眠期间若群内有效真人消息超过阈值（默认 99 条），醒来后自动用轻量模型梳理错过的话题写入上下文。
+- **弹性延睡与冲突检查**：快到睡点仍在热聊时可适当延后入睡并在次日补觉；被邀约时能根据固定日程判断是否需要协商改期。
 
-[为什么用它](#为什么用它) · [3 步快速开始](#3-步快速开始) · [配置项说明](#常用配置项说明) · [命令与控制台](#工具命令与控制台) · [FAQ](#常见疑问)
+## 如何使用
 
-</div>
-
----
-
-## 为什么用它
-
-| 常见问题 | 传统作息插件的痛点 | **麦的一天（`zeyr.mai-day`）** |
-|---|---|---|
-| 半夜睡觉丢记忆或烧额度 | 入口直接拦截会导致半夜群聊记忆全漏；只拦发消息半夜仍不断触发 Planner 空烧思考 | 入睡自动把群聊（含观察群）频率压成 **`0.0` 零思考纯观望，记忆 100% 继续学习**；私聊与边缘窗口由护栏兜底 |
-| 一觉醒来跟没睡过一样 | 早上一开口接不上群友半夜聊的话题，或根本不知刚聊了上百楼 | 醒来自动检查错过条数：**达到 99 条才调用轻量模型写爬楼笔记**并塞进上下文，低于 99 条省额度 |
-| 别人约时间要么全答应要么全拒 | 所有时段一刀切，问起在干嘛每次靠模型现场编造 | 时间块区分 **`locked` / `soft` / `open`**：撞刚性课或约定建议推脱并给出空闲窗，软安排可商量挪动 |
-| 聊嗨了瞬间被强行下线 | 一到 23:00 秒哑火，或因为跨过 00:00 逻辑清零 | 支持**聊嗨弹性延睡**（私聊可设更高粘性）+ **跨午夜逻辑作息日（默认 05:00 换日）**，昨晚熬夜今早自动多睡补觉 |
-
----
-
-## 3 步快速开始
-
-### WebUI 上手（推荐）
-1. **重要提醒**：如果之前装过旧版 `maibot-community.mai-life`，先禁用旧插件；将 `mai-day/` 放入宿主 `plugins/` 并重启 MaiBot。
-2. 打开 **麦的一天** 配置页，先调 **作息模板**（学生党 / 上班族 / 夜猫子 / 自定义）、**生活波动感**（推荐 `natural`）和 **睡眠时静默**（推荐开启）。
-3. 如需屏蔽特定观察群或设置主动早晚安，点开高级设置填写 **纯观察静默群** 与 **早安/晚安方式**，并在顶部控件点 **刷新今日时间线图** 一眼确认今天的时间安排。
+1. 若之前装过旧版 `mai-life`，先将其禁用；将 `mai-day/` 放入宿主 `plugins/` 目录并重启。
+2. 打开 **麦的一天** 配置页，选择 **作息模板**、**作息波动**（推荐 `natural`）并保持 **夜间安静** 开启。
+3. 如需设置一直静音学习的观察群或主动早晚安对象，展开高级设置填写 **纯观察静默群** 与 **主动问候目标**；点击顶部 **刷新今日时间线图** 可预览今日安排。
 
 <details>
-<summary>手改 config.toml 示例（附完整注释）</summary>
+<summary>config.toml 配置示例</summary>
 
 ```toml
 enabled = true
-preset = "student"                                   # student 学生党 | worker 上班族 | night_owl 夜猫子 | custom
-volatility_level = "natural"                         # fixed 铁律 | calm 微起伏 | natural 自然真人感 | chaotic 随性
-sleep_silence = true                                 # 睡着后群聊频率归零（0思考消费），记忆学习 100% 继续
-good_morning_mode = "passive_hint"                   # off | passive_hint 搭话顺嘴说 | proactive 主动向热聊目标发
+preset = "student"                                   # student | worker | night_owl | custom
+volatility_level = "natural"                         # fixed | calm | natural | chaotic
+sleep_silence = true
+good_morning_mode = "passive_hint"                   # off | passive_hint | proactive
 good_night_mode = "passive_hint"
 
 [catchup]
 enabled = true
-min_messages = 99                                    # 睡眠期间至少错过 99 条真人消息才调用模型整理爬楼速记
+min_messages = 99
 
 [weights]
-enabled = true                                       # 清醒时自动合成「时段权重 × 群关系权重」（不依赖睡眠归零）
+enabled = true
 
 [[passive_observation_groups]]
 platform = "qq"
-group_id = "111222333"                               # 只观望学记忆、白天黑夜一律 0 倍率且绝不发言的群
+group_id = "111222333"
 
 [[admins]]
 platform = "qq"
-user_id = "987654"                                   # 留空亦可自动继承「群关系」里的管理员
+user_id = "987654"
 ```
 
 </details>
 
----
+## 配置说明
 
-## 常用配置项说明
-
-| 配置项 | 默认值 | 怎么填与效果说明 |
+| 配置项 | 默认值 | 说明 |
 |---|---|---|
-| `preset` | `"worker"` | 四套内置双层周模板；含法定假日切周末、单独星期覆盖，可在高级区自定义每块细节 |
-| `volatility_level` | `"natural"` | 四档波动（±0 / ±10 / ±25 / ±45 分钟），绝不推翻 `locked` 刚性块与 `hard_bedtime` |
-| `sleep_silence` | `true` | 只要开启（不依赖 `weights.enabled`），入睡即把生效群与观察群倍率调成 `0.0`，醒来自动恢复原值 |
-| `nap` | 默认关闭 | 可选午觉时间窗、概率、时长与 `debt_only`（仅昨晚熬夜欠觉时才午睡） |
-| `catchup` | 门槛 `99` 条 | 过滤掉宿主自身及同行 Bot 后满 99 条才用轻量模型摘要，以 `replyable=False` 插卡回上下文 |
-| `weights` | `enabled = true` | 清醒时段权重（`locked=0.35 / soft=0.85 / open=1.05`）× `mai-circle` 关系权重，停用或卸载还原原值 |
-| `daily_polish` | 默认关闭 | 可选每天 05:00 换日后请轻量模型把枯燥活动标题润色一次，不改时间与刚度 |
+| `preset` | `"worker"` | 周作息模板，节假日与补班日会自动联动 `mai-calendar` 切换 |
+| `volatility_level` | `"natural"` | 四档日常波动设置，不会改变 `locked` 固定日程与最晚入睡时间 |
+| `sleep_silence` | `true` | 夜间安静开关：入睡后把群聊频率调成 `0.0`，醒来自动恢复原值 |
+| `nap` | 默认关闭 | 高级设置：午睡时间窗口、概率、时长与是否仅欠觉时触发 |
+| `catchup` | 门槛 `99` | 高级设置：睡醒消息回顾配置，过滤其他 Bot 后达标才触发摘要 |
+| `weights` | `enabled = true` | 高级设置：清醒时段根据日程忙闲与 `mai-circle` 关系调节群聊频率 |
+| `daily_polish` | 默认关闭 | 高级设置：每天换日后用轻量模型润色常规活动名称 |
 
----
+## 命令与工具
 
-## 工具、命令与控制台
-
-### 对话工具与管理命令
-| 类型 | 名称 / 语法 | 说明 |
+| 类别 | 名称 / 格式 | 说明 |
 |---|---|---|
-| **对话工具** | `query_today_schedule(scope, start, end, event_text)` | 查今日底稿/有效安排/动态；带 `start/end` 检查档期冲突（`free` / `negotiable` / `conflict_locked`）；带 `event_text` 实时记变化 |
-| **管理命令** | `/日程 + HH:MM[-HH:MM] <内容> [locked\|soft\|open]` | 管理员向今天追加手动日程并重算空档 |
-| **管理命令** | `/唤醒` | 管理员在群里临时唤醒 Bot（默认清醒 15 分钟，自动放行命令回执） |
-
-### WebUI 运行时控制台（`config_widgets`）
-| 控件 | 说明 |
-|---|---|
-| `运行状态与生效范围` | 显示当前作息预设、波动感、当下阶段（清醒 / 睡觉静默中）、累积睡眠债与 `[scope]` |
-| `爬楼与频率状态` | 查看各群已统计爬楼进度、向宿主下发的当前实时倍率，以及点击渲染的**今日后续时间线预览图** |
-| `刷新今日时间线图` | 使用本地 `ctx.render.html2png` 无外网渲染今天剩余日程图片 |
-| `临时唤醒` | 不在群里打字直接从后台临时唤醒 |
-| `刷新今日未来软安排` | 保留今天已发生事件与 `locked` 约定，只对未来柔性空档重排投影（带二次确认） |
-
----
-
-## 生态联动与常见疑问
-
-- **全生态协调**：自动读取 `mai-calendar` 放假/调休与 `self/mutual` 待办、读取 `mai-profile` 作息偏好、合成 `mai-circle` 关系权重；为 `mai-insights` 提供 `open` 窗口共享租约；并给 `mai-calendar`、`mai-circle`、`mai-insights` 的命令/提醒/总结提供 **30 秒精确文本授权**，睡着期间绝不误杀指令回执。
-- **Q：为什么私聊睡着时不会写频率 `0`？**
-  MaiBot 宿主底层对私聊会忽略 `frequency.set_adjust()`，所以群聊走 `0.0` 倍率实现零 Planner 思考，私聊则由本插件的 `planner` 移工具 + `replyer` + `before_send` 护栏保底确保不发消息。
-- **Q：会迁移或覆盖旧版 `mai-life` 数据吗？**
-  完全不会。本插件不读取、不迁移也不删改旧 `mai-life` 的任何文件。
+| 对话工具 | `query_today_schedule(scope, start, end, event_text)` | 查询今日安排与当前状态、检查时间段是否有空，或记录临时日程变化 |
+| 管理命令 | `/日程 + HH:MM[-HH:MM] <内容> [locked\|soft\|open]` | 向今天追加一条临时日程并重算空档（需管理员） |
+| 管理命令 | `/唤醒` | 临时唤醒 Bot 一段时间（默认 15 分钟，需管理员） |
+| WebUI 控件 | `刷新今日时间线图` / `临时唤醒` / `刷新今日未来软安排` | 渲染当天剩余日程图片、手动唤醒或重排未来非固定时段 |
 
 <details>
-<summary>开发、门禁与安全审计</summary>
+<summary>开发与自检</summary>
 
 ```bash
 python3.13 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r .github/requirements-ci.txt
 .venv/bin/python scripts/check.py
 ```
-
-- 包含 60 项边界、波动、爬楼、频率协调及睡眠静默解耦回归测试。
 
 </details>

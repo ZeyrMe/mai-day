@@ -34,13 +34,13 @@ class Block(PluginConfigBase):
     )
     flexibility: Flexibility = Field(
         default="open",
-        description="日程刚度。",
+        description="该时间段的日程类型。",
         json_schema_extra={
-            "label": "日程刚度",
+            "label": "日程类型",
             "enum_labels": {
-                "locked": "locked（刚性不可让：上课/工作/已约好的事，不抖动且推脱邀约）",
-                "soft": "soft（柔性可商量：起床/吃饭/睡觉，允许时间抖动和商量改期）",
-                "open": "open（自由摸鱼：随时可聊天、接新邀约、搬运见闻）",
+                "locked": "locked（固定安排：上课/工作/已约事项，不随机偏移且不让位）",
+                "soft": "soft（常规安排：起床/吃饭/睡觉，允许小幅浮动与协商）",
+                "open": "open（空闲时间：可随时聊天、接收约定或分享见闻）",
             },
         },
     )
@@ -346,27 +346,27 @@ class NapConfig(PluginConfigBase):
 
 
 class CatchupConfig(PluginConfigBase):
-    """「醒来爬楼感」设置：睡着期间照常收消息和学习，醒来时按群聊攒了多少条真人聊天决定要不要用轻量模型过一遍（少于 99 条不浪费额度），最后把简短爬楼笔记以不可自动回复的方式插回聊天上下文。"""
+    """睡醒后的消息回顾设置：睡眠期间正常接收消息与学习记忆，醒来后根据错过消息数决定是否使用轻量模型总结写入上下文。"""
 
-    __ui_label__ = "醒来爬楼"
+    __ui_label__ = "睡醒消息回顾"
     enabled: bool = Field(
         default=True,
-        description="睡醒后如果错过了太多消息，自动快速爬个楼再接着聊。",
+        description="睡醒后如果错过了较多消息，自动梳理重点写入上下文。",
         json_schema_extra={
-            "label": "启用醒来爬楼",
+            "label": "启用睡醒回顾",
             "order": 1,
-            "hint": "只有睡眠期间错过的有效真人消息达标才会调用一次轻量摘要模型。",
+            "hint": "只有睡眠期间错过的有效真人消息达到门槛时才会调用轻量模型总结。",
         },
     )
     min_messages: int = Field(
         default=99,
         ge=1,
         le=2000,
-        description="睡着期间群里攒够至少多少条真人消息才总结爬楼。",
+        description="睡眠期间至少错过多少条真人消息才触发总结回顾。",
         json_schema_extra={
-            "label": "爬楼消息门槛",
+            "label": "回顾消息条数",
             "order": 2,
-            "hint": "默认 99 条：少于该数说明群里没聊几句，宿主自带近期上下文已经够看，不额外调用模型。",
+            "hint": "默认 99 条：低于该数量时直接使用宿主近期上下文，不额外调用模型。",
         },
     )
     max_messages: int = Field(
@@ -419,16 +419,16 @@ class CatchupConfig(PluginConfigBase):
 
 
 class WeightConfig(PluginConfigBase):
-    """清醒期间把「当下时段忙不忙」与「群关系里的熟人权重」乘在一起，微调群聊发言频率倍率（不覆盖私聊开关；睡着和观察群会始终单独压成 0.0 零思考消费）。"""
+    """清醒期间结合当前日程忙闲与群关系好感度调整群聊发言频率倍率（睡着与观察群单独调至 0.0）。"""
 
-    __ui_label__ = "发言频率合成"
+    __ui_label__ = "发言频率调节"
     enabled: bool = Field(
         default=True,
-        description="清醒时自动把当下忙不忙、和谁在聊乘成群聊说话倍率。",
+        description="清醒时自动结合日程忙闲与关系权重调节群聊发言频率。",
         json_schema_extra={
-            "label": "启用时段×关系调权",
+            "label": "启用频率调节",
             "order": 1,
-            "hint": "即便关闭此项，只要开启了“睡眠时静默”，睡着和观察群依然会把群聊倍率压成 0.0。",
+            "hint": "即使关闭此项，只要开启了“夜间安静”，睡眠与观察群仍会将群聊频率调为 0.0。",
         },
     )
     locked: float = Field(
@@ -453,11 +453,11 @@ class WeightConfig(PluginConfigBase):
         default=1.05,
         ge=0,
         le=2,
-        description="空闲摸鱼时段的说话倍率。",
+        description="空闲时段的说话倍率。",
         json_schema_extra={
-            "label": "空闲摸鱼倍率",
+            "label": "空闲时段倍率",
             "order": 4,
-            "hint": "默认 1.05，闲着的时候稍微更爱搭话。",
+            "hint": "默认 1.05，空闲时可以稍微多聊几句。",
         },
     )
     low_energy: float = Field(
@@ -580,26 +580,26 @@ class Config(PluginConfigBase):
     )
     volatility_level: Literal["fixed", "calm", "natural", "chaotic"] = Field(
         default="natural",
-        description="决定每天生活安排有多大的弹性起伏。",
+        description="决定每天作息安排的时间浮动与日常弹性。",
         json_schema_extra={
-            "label": "生活波动感",
+            "label": "作息波动",
             "order": 3,
             "enum_labels": {
-                "fixed": "fixed（铁律作息：0 抖动、不延睡不插曲）",
-                "calm": "calm（微小起伏：±10 分钟小幅波动，不欠睡眠债）",
-                "natural": "natural（推荐默认：±25 分钟自然波动，聊嗨延迟睡+次日适当补觉）",
-                "chaotic": "chaotic（随性跳脱：±45 分钟明显抖动，高概率临时插曲）",
+                "fixed": "fixed（固定不变：无浮动、不延睡、不插曲）",
+                "calm": "calm（轻微浮动：±10 分钟小幅波动，不累计睡眠债）",
+                "natural": "natural（推荐默认：±25 分钟自然波动，热聊可延睡并在次日补觉）",
+                "chaotic": "chaotic（随性变化：±45 分钟明显波动，高频触发小插曲）",
             },
-            "hint": "无论选哪一档，locked 刚性课程/约定和最晚熬夜死线都绝对不会被波动突破。",
+            "hint": "无论选哪一档，locked 固定日程与最晚熬夜时间均不会被打破。",
         },
     )
     sleep_silence: bool = Field(
         default=True,
-        description="睡着后群聊自动把回复频率调成 0，私聊由护栏拦住不发话。",
+        description="睡眠时段将群聊发言频率调为 0，私聊则由发送拦截保持安静。",
         json_schema_extra={
-            "label": "睡眠时静默",
+            "label": "夜间安静",
             "order": 4,
-            "hint": "推荐开启：群里收消息与记忆/黑话/表达学习 100% 继续，但 0 次模型思考不白烧额度，醒来恢复原频率。",
+            "hint": "推荐开启：群里照常收消息并学习记忆，但不触发对话思考，醒来后自动恢复原有频率。",
         },
     )
     good_morning_mode: Literal["off", "passive_hint", "proactive"] = Field(
@@ -859,10 +859,10 @@ class Config(PluginConfigBase):
     )
     passive_observation_groups: list[Target] = Field(
         default_factory=list,
-        description="只静默观察学习和把频率归零、绝对禁止任何主动发消息的群。",
+        description="只保持观察学习并将频率调为 0、禁止主动发消息的群。",
         json_schema_extra={
             "label": "纯观察静默群",
-            "hint": "最高优先级静音防线：这里填了的 QQ 群（只填群号），不管白天黑夜永远把频率压到 0 且死锁拦截任何外发。",
+            "hint": "最高优先级静音名单：填入的 QQ 群（只填群号）会始终将发言频率保持为 0，并拦截所有主动外发消息。",
         },
     )
     anchor_template: str = Field(

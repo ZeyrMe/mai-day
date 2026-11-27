@@ -3,7 +3,7 @@
   "id": "zeyr.mai-day",
   "version": "0.2.0",
   "name": "麦的一天",
-  "description": "日程、连续动态与不丢消息睡眠",
+  "description": "为麦麦提供日常作息、日程安排与夜间安静控制",
   "author": {
     "name": "zeyr",
     "url": "https://github.com/zeyr"

@@ -22,7 +22,7 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
     config_model = Config
     config_widgets = EcosystemMixin.config_widgets + [
         ConfigWidget(id="wake_now", kind="action", label="临时唤醒"),
-        ConfigWidget(id="catchup_status", kind="status", label="爬楼与频率状态"),
+        ConfigWidget(id="catchup_status", kind="status", label="消息回顾与频率状态"),
         ConfigWidget(id="render_timeline", kind="action", label="刷新今日时间线图"),
         ConfigWidget(
             id="regenerate_plan",
@@ -353,7 +353,7 @@ class Plugin(EcosystemMixin, MaiBotPlugin):
 
     @Tool(
         "query_today_schedule",
-        description="查询今日原始日程、有效安排或持续动态；不会把整张表常驻注入。",
+        description="查询今日作息、当前状态与空闲时段，或记录临时日程变化。",
         parameters=[
             ToolParameterInfo(
                 name="scope", description="plan / current / events / all", required=False, default="all"
