@@ -2,6 +2,13 @@
 
 为麦麦提供日常作息、日程安排与夜间安静控制
 
+![Version](https://img.shields.io/badge/version-0.2.0-brightgreen)
+![MaiBot](https://img.shields.io/badge/MaiBot-1.4.8%2B-2f81f7)
+![SDK](https://img.shields.io/badge/SDK-2.23.0-0e8a16)
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776ab)
+![Standalone](https://img.shields.io/badge/独立运行-支持-blue)
+![License](https://img.shields.io/badge/License-MIT-lightgrey)
+
 ## 功能介绍
 
 - **灵活的日常作息**：内置学生党、上班族、夜猫子与自定义 4 套周模板；日程块区分固定（`locked`）、常规（`soft`）与空闲（`open`），支持按波动档位产生自然的早晚浮动与午睡。
